@@ -1,0 +1,27 @@
+# Python Bytecode
+__pycache__/
+*.pyc
+
+# Virtuelle Umgebung
+venv/
+.env/
+
+# PyCharm
+.idea/
+*.iml
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Build / Distribution
+build/
+dist/
+*.egg-info/
+
