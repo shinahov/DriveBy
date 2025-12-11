@@ -32,3 +32,6 @@ dist/
 *.gz
 *.tex
 *.toc
+
+#key
+*.txt
