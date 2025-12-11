@@ -25,3 +25,10 @@ build/
 dist/
 *.egg-info/
 
+# latex
+*.aux
+*.out
+*.pdf
+*.gz
+*.tex
+*.toc
