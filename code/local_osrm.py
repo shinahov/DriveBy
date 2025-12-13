@@ -6,6 +6,61 @@ from typing import List, Tuple, Optional
 from DriverRoute import LatLon, DriverRoute
 from WalkerRoute import WalkerRoute
 
+OSRM_BASE = "http://localhost:5000"
+
+
+def compute_walking_distance(a: LatLon, b: LatLon) -> float:
+    # Walking distance in meters using OSRM (profile='walking').
+    a_lat, a_lon = a
+    b_lat, b_lon = b
+    coords = f"{a_lon},{a_lat};{b_lon},{b_lat}"
+    url = f"{OSRM_BASE}/route/v1/walking/{coords}?overview=false"
+    r = requests.get(url, timeout=60)
+    r.raise_for_status()
+    data = r.json()
+    if data.get("code") != "Ok":
+        raise RuntimeError(data)
+    route = data["routes"][0]
+    return route["distance"]
+
+
+def find_closest_dropout_point(driver: DriverRoute, walker: WalkerRoute, pickup:LatLon) -> Tuple[float, float]:
+    min_dist = float('inf')
+    best_point = None
+    for point in reversed(driver.geometry_latlon):
+        if point == pickup:
+            break
+        dist = compute_walking_distance(walker.dest, point)
+        if dist < min_dist:
+            min_dist = dist
+            best_point = point
+    if best_point is None:
+        raise RuntimeError("No dropout point found after pickup.")
+    return best_point
+
+
+def find_closest_pickup_point(driver: DriverRoute, walker: WalkerRoute) -> Tuple[float, float]:
+    min_dist = float("inf")
+    best_point: LatLon | None = None
+
+    for p in driver.geometry_latlon:
+        d = compute_walking_distance(p, walker.start)
+        if d < min_dist:
+            min_dist = d
+            best_point = p
+
+    if best_point is None:
+        raise RuntimeError("No pickup point found")
+
+    return best_point
+
+
+def find_pickup_and_dropoff(driver: DriverRoute, walker: WalkerRoute) -> Tuple[float, float, float, float]:
+    pickup = find_closest_pickup_point(driver, walker)
+    dropoff = find_closest_dropout_point(driver, walker, pickup)
+
+    return pickup[0], pickup[1], dropoff[0], dropoff[1]
+
 
 def build_cum_dist(seg_dist: List[float]) -> List[float]:
     cum = [0.0]
@@ -14,9 +69,6 @@ def build_cum_dist(seg_dist: List[float]) -> List[float]:
         total += d
         cum.append(total)
     return cum
-
-
-OSRM_BASE = "http://localhost:5000"
 
 
 def fetch_route(start: LatLon, dest: LatLon, profile: str):
@@ -79,6 +131,9 @@ walker = WalkerRoute(
     nodes=w_nodes,
 )
 
+pickup = find_closest_pickup_point(driver, walker)
+dropoff = find_closest_dropout_point(driver, walker, pickup)
+
 m = folium.Map(location=start, zoom_start=12)
 
 # markers
@@ -91,6 +146,23 @@ folium.Marker(walker.dest, tooltip="Walker End", icon=folium.Icon(color="orange"
 folium.PolyLine(driver.geometry_latlon, weight=5, opacity=0.8).add_to(m)
 folium.PolyLine(walker.geometry_latlon, color="red", weight=5, opacity=0.8).add_to(m)
 
+# pickup / dropoff markers
+folium.Marker(
+    pickup,
+    tooltip="Pickup (Driver meets Walker)",
+    icon=folium.Icon(color="purple", icon="play")
+).add_to(m)
+
+folium.Marker(
+    dropoff,
+    tooltip="Dropoff (Driver leaves Walker)",
+    icon=folium.Icon(color="black", icon="stop")
+).add_to(m)
+
+# optional: visualize walker walking to pickup and from dropoff
+folium.PolyLine([walker.start, pickup], weight=3, opacity=0.9, dash_array="8,6").add_to(m)
+folium.PolyLine([dropoff, walker.dest], weight=3, opacity=0.9, dash_array="8,6").add_to(m)
+
+
 m.save("map.html")
 webbrowser.open("map.html")
-
