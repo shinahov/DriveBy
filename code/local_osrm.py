@@ -1,25 +1,32 @@
 import folium
 import requests
 import webbrowser
+from typing import List, Tuple, Optional
+
+from DriverRoute import LatLon, DriverRoute
+from WalkerRoute import WalkerRoute
+
+
+def build_cum_dist(seg_dist: List[float]) -> List[float]:
+    cum = [0.0]
+    total = 0.0
+    for d in seg_dist:
+        total += d
+        cum.append(total)
+    return cum
+
 
 OSRM_BASE = "http://localhost:5000"
 
-# Coordinates: (lat, lon)
-start = (51.2562, 7.1508)       # Wuppertal
-end   = (51.2277, 6.7735)       # Düsseldorf
 
-walker_start = (51.200066, 6.789997)  # Uni Klinik
-walker_end   = (51.219932, 6.779193)  # Alle
+def fetch_route(start: LatLon, dest: LatLon, profile: str):
+    a_lat, a_lon = start
+    b_lat, b_lon = dest
 
-def osrm_route(latlon_a, latlon_b):
-    a_lat, a_lon = latlon_a
-    b_lat, b_lon = latlon_b
-
-    # OSRM expects lon,lat
     coords = f"{a_lon},{a_lat};{b_lon},{b_lat}"
 
     url = (
-        f"{OSRM_BASE}/route/v1/driving/{coords}"
+        f"{OSRM_BASE}/route/v1/{profile}/{coords}"
         "?overview=full&geometries=geojson&annotations=true&steps=false"
     )
 
@@ -28,49 +35,62 @@ def osrm_route(latlon_a, latlon_b):
     data = r.json()
 
     if data.get("code") != "Ok":
-        raise RuntimeError(f"OSRM error: {data.get('code')} - {data.get('message')}")
+        raise RuntimeError(data)
 
     route = data["routes"][0]
     leg = route["legs"][0]
-    ann = leg.get("annotation", {})
+    ann = leg["annotation"]
 
-    geometry_lonlat = route["geometry"]["coordinates"]          # [[lon,lat], ...]
-    geometry_latlon = [(lat, lon) for lon, lat in geometry_lonlat]  # Folium-ready
+    geometry_latlon = [(lat, lon) for lon, lat in route["geometry"]["coordinates"]]
+    seg_dist = ann["distance"]
+    nodes = ann.get("nodes")
 
-    nodes = ann.get("nodes", [])
-    seg_dist = ann.get("distance", [])
+    cum_dist = build_cum_dist(seg_dist)
 
-    return {
-        "url": url,
-        "geometry_latlon": geometry_latlon,
-        "nodes": nodes,
-        "segment_distances": seg_dist,
-        "total_distance_m": route["distance"],
-        "total_duration_s": route["duration"],
-    }
+    return geometry_latlon, seg_dist, cum_dist, nodes
 
 
-# --- fetch both routes from local OSRM ---
-driver = osrm_route(start, end)
-walker = osrm_route(walker_start, walker_end)
+start = (51.2562, 7.1508)
+end = (51.2277, 6.7735)
 
-print("Driver URL:", driver["url"])
-print("Walker URL:", walker["url"])
-print("Driver total distance (m):", driver["total_distance_m"])
-print("Walker total distance (m):", walker["total_distance_m"])
+walker_start = (51.200066, 6.789997)
+walker_end = (51.219932, 6.779193)
 
-# --- build map ---
+d_geom, d_seg, d_cum, d_nodes = fetch_route(start, end, "driving")
+w_geom, w_seg, w_cum, w_nodes = fetch_route(walker_start, walker_end, "walking")
+
+driver = DriverRoute(
+    start=start,
+    dest=end,
+    profile="driving",
+    geometry_latlon=d_geom,
+    seg_dist_m=d_seg,
+    cum_dist_m=d_cum,
+    nodes=d_nodes,
+)
+
+walker = WalkerRoute(
+    start=walker_start,
+    dest=walker_end,
+    profile="walking",
+    geometry_latlon=w_geom,
+    seg_dist_m=w_seg,
+    cum_dist_m=w_cum,
+    nodes=w_nodes,
+)
+
 m = folium.Map(location=start, zoom_start=12)
 
 # markers
-folium.Marker(start, tooltip="Start (Driver)", icon=folium.Icon(color="green")).add_to(m)
-folium.Marker(end, tooltip="End (Driver)", icon=folium.Icon(color="red")).add_to(m)
-folium.Marker(walker_start, tooltip="Walker Start", icon=folium.Icon(color="blue")).add_to(m)
-folium.Marker(walker_end, tooltip="Walker End", icon=folium.Icon(color="orange")).add_to(m)
+folium.Marker(driver.start, tooltip="Driver Start", icon=folium.Icon(color="green")).add_to(m)
+folium.Marker(driver.dest, tooltip="Driver End", icon=folium.Icon(color="red")).add_to(m)
+folium.Marker(walker.start, tooltip="Walker Start", icon=folium.Icon(color="blue")).add_to(m)
+folium.Marker(walker.dest, tooltip="Walker End", icon=folium.Icon(color="orange")).add_to(m)
 
 # polylines
-folium.PolyLine(driver["geometry_latlon"], weight=5, opacity=0.8).add_to(m)
-folium.PolyLine(walker["geometry_latlon"], weight=5, color="red", opacity=0.8).add_to(m)
+folium.PolyLine(driver.geometry_latlon, weight=5, opacity=0.8).add_to(m)
+folium.PolyLine(walker.geometry_latlon, color="red", weight=5, opacity=0.8).add_to(m)
 
 m.save("map.html")
 webbrowser.open("map.html")
+
