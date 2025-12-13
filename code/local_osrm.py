@@ -1,3 +1,5 @@
+import math
+
 import folium
 import requests
 import webbrowser
@@ -7,6 +9,30 @@ from DriverRoute import LatLon, DriverRoute
 from WalkerRoute import WalkerRoute
 
 OSRM_BASE = "http://localhost:5000"
+
+def haversine_m(a: LatLon, b: LatLon) -> float:
+    R = 6371000.0
+    lat1, lon1 = map(math.radians, a)
+    lat2, lon2 = map(math.radians, b)
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    x = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
+    return 2 * R * math.asin(math.sqrt(x))
+
+def _topk_by_haversine(points: List[LatLon], target: LatLon, k: int) -> List[int]:
+    idx_d = [(i, haversine_m(p, target)) for i, p in enumerate(points)]
+    idx_d.sort(key=lambda t: t[1])
+    return [i for i, _ in idx_d[:min(k, len(idx_d))]]
+
+def _closest_point_index(points: List[LatLon], target: LatLon) -> int:
+    best_i = 0
+    best_d = float("inf")
+    for i, p in enumerate(points):
+        d = haversine_m(p, target)
+        if d < best_d:
+            best_d = d
+            best_i = i
+    return best_i
 
 
 def compute_walking_distance(a: LatLon, b: LatLon) -> float:
@@ -24,35 +50,49 @@ def compute_walking_distance(a: LatLon, b: LatLon) -> float:
     return route["distance"]
 
 
-def find_closest_dropout_point(driver: DriverRoute, walker: WalkerRoute, pickup:LatLon) -> Tuple[float, float]:
-    min_dist = float('inf')
-    best_point = None
-    for point in reversed(driver.geometry_latlon):
-        if point == pickup:
-            break
-        dist = compute_walking_distance(walker.dest, point)
-        if dist < min_dist:
-            min_dist = dist
-            best_point = point
-    if best_point is None:
-        raise RuntimeError("No dropout point found after pickup.")
-    return best_point
+def find_closest_dropout_point(driver: DriverRoute, walker: WalkerRoute, pickup: LatLon, k: int = 20) -> LatLon:
+    pts = driver.geometry_latlon
+
+    # robust: pickup index via nearest geometry point (not equality)
+    pickup_i = _closest_point_index(pts, pickup)
+
+    # only consider points AFTER pickup
+    tail = pts[pickup_i+1:]
+    if not tail:
+        raise RuntimeError("Pickup is at/near end of driver route")
+
+    # candidates in tail by haversine to walker.dest
+    cand_local = _topk_by_haversine(tail, walker.dest, k)
+    cand_idx = [pickup_i + 1 + j for j in cand_local]
+
+    best_i = None
+    best_d = float("inf")
+    for i in cand_idx:
+        d = compute_walking_distance(pts[i], walker.dest)
+        if d < best_d:
+            best_d = d
+            best_i = i
+
+    if best_i is None:
+        raise RuntimeError("No dropout point found")
+    return pts[best_i]
 
 
-def find_closest_pickup_point(driver: DriverRoute, walker: WalkerRoute) -> Tuple[float, float]:
-    min_dist = float("inf")
-    best_point: LatLon | None = None
+def find_closest_pickup_point(driver: DriverRoute, walker: WalkerRoute, k: int = 30) -> LatLon:
+    pts = driver.geometry_latlon
+    cand_idx = _topk_by_haversine(pts, walker.start, k)
 
-    for p in driver.geometry_latlon:
-        d = compute_walking_distance(p, walker.start)
-        if d < min_dist:
-            min_dist = d
-            best_point = p
+    best_i = None
+    best_d = float("inf")
+    for i in cand_idx:
+        d = compute_walking_distance(pts[i], walker.start)
+        if d < best_d:
+            best_d = d
+            best_i = i
 
-    if best_point is None:
+    if best_i is None:
         raise RuntimeError("No pickup point found")
-
-    return best_point
+    return pts[best_i]
 
 
 def find_pickup_and_dropoff(driver: DriverRoute, walker: WalkerRoute) -> Tuple[float, float, float, float]:
