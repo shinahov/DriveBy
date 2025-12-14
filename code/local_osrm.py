@@ -50,7 +50,7 @@ def compute_walking_distance(a: LatLon, b: LatLon) -> float:
     return route["distance"]
 
 
-def find_closest_dropout_point(driver: DriverRoute, walker: WalkerRoute, pickup: LatLon, k: int = 20) -> LatLon:
+def find_closest_dropout_point(driver: DriverRoute, walker: WalkerRoute, pickup: LatLon, k: int = 20) -> Tuple[LatLon, float]:
     pts = driver.geometry_latlon
 
     # robust: pickup index via nearest geometry point (not equality)
@@ -75,10 +75,10 @@ def find_closest_dropout_point(driver: DriverRoute, walker: WalkerRoute, pickup:
 
     if best_i is None:
         raise RuntimeError("No dropout point found")
-    return pts[best_i]
+    return pts[best_i], best_d
 
 
-def find_closest_pickup_point(driver: DriverRoute, walker: WalkerRoute, k: int = 30) -> LatLon:
+def find_closest_pickup_point(driver: DriverRoute, walker: WalkerRoute, k: int = 30) -> Tuple[LatLon, float]:
     pts = driver.geometry_latlon
     cand_idx = _topk_by_haversine(pts, walker.start, k)
 
@@ -92,14 +92,14 @@ def find_closest_pickup_point(driver: DriverRoute, walker: WalkerRoute, k: int =
 
     if best_i is None:
         raise RuntimeError("No pickup point found")
-    return pts[best_i]
+    return pts[best_i], best_d
 
 
-def find_pickup_and_dropoff(driver: DriverRoute, walker: WalkerRoute) -> Tuple[float, float, float, float]:
-    pickup = find_closest_pickup_point(driver, walker)
-    dropoff = find_closest_dropout_point(driver, walker, pickup)
+def find_pickup_and_dropoff(driver: DriverRoute, walker: WalkerRoute) -> Tuple[float, float, float, float, float, float]:
+    pickup,  pick_dist = find_closest_pickup_point(driver, walker)
+    dropoff, drop_dist = find_closest_dropout_point(driver, walker, pickup)
 
-    return pickup[0], pickup[1], dropoff[0], dropoff[1]
+    return pickup[0], pickup[1], pick_dist, dropoff[0], dropoff[1], drop_dist
 
 
 def build_cum_dist(seg_dist: List[float]) -> List[float]:
@@ -145,8 +145,8 @@ def fetch_route(start: LatLon, dest: LatLon, profile: str):
 start = (51.2562, 7.1508)
 end = (51.2277, 6.7735)
 
-walker_start = (51.200066, 6.789997)
-walker_end = (51.219932, 6.779193)
+walker_start = (51.202561, 6.780486)
+walker_end = (51.219105, 6.787711)
 
 d_geom, d_seg, d_cum, d_nodes = fetch_route(start, end, "driving")
 w_geom, w_seg, w_cum, w_nodes = fetch_route(walker_start, walker_end, "walking")
@@ -171,8 +171,9 @@ walker = WalkerRoute(
     nodes=w_nodes,
 )
 
-pickup = find_closest_pickup_point(driver, walker)
-dropoff = find_closest_dropout_point(driver, walker, pickup)
+pickup_lat, pickup_lon, pick_dist, dropoff_lat, dropoff_lon, drop_dist = find_pickup_and_dropoff(driver, walker)
+pickup = (pickup_lat, pickup_lon)
+dropoff = (dropoff_lat, dropoff_lon)
 
 m = folium.Map(location=start, zoom_start=12)
 
@@ -199,9 +200,13 @@ folium.Marker(
     icon=folium.Icon(color="black", icon="stop")
 ).add_to(m)
 
+
+
 # optional: visualize walker walking to pickup and from dropoff
-folium.PolyLine([walker.start, pickup], weight=3, opacity=0.9, dash_array="8,6").add_to(m)
-folium.PolyLine([dropoff, walker.dest], weight=3, opacity=0.9, dash_array="8,6").add_to(m)
+walker_to_pickup = fetch_route(walker.start, pickup, "walking")[0]
+walker_from_dropoff = fetch_route(dropoff, walker.dest, "walking")[0]
+folium.PolyLine(walker_to_pickup, color="cyan", weight=3, opacity=0.6, dash_array='5').add_to(m)
+folium.PolyLine(walker_from_dropoff, color="cyan", weight=3, opacity=0.6, dash_array='5').add_to(m)
 
 
 m.save("map.html")
