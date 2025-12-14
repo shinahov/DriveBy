@@ -1,5 +1,5 @@
 import math
-
+import random
 import folium
 import requests
 import webbrowser
@@ -9,6 +9,47 @@ from DriverRoute import LatLon, DriverRoute
 from WalkerRoute import WalkerRoute
 
 OSRM_BASE = "http://localhost:5000"
+
+def best_driver(drivers: List[DriverRoute], walker: WalkerRoute) -> DriverRoute:
+    best_driver = None
+    best_total_walk = float("inf")
+    for driver in drivers:
+        try:
+            _, _, pick_dist, _, _, drop_dist = find_pickup_and_dropoff(driver, walker)
+            total_walk = pick_dist + drop_dist
+            if total_walk < best_total_walk:
+                best_total_walk = total_walk
+                best_driver = driver
+        except RuntimeError:
+            continue
+    if best_driver is None:
+        raise RuntimeError("No suitable driver found")
+    return best_driver
+
+def random_offset(point:LatLon , radius: float) -> Tuple[float, float]:
+    lat, lon = point
+    grad = 111320.0  # meters per degree latitude
+    # Convert radius from meters to degrees
+    dlat = random.uniform(-radius, radius) / grad
+    dlon = random.uniform(-radius, radius) / (grad * math.cos(math.radians(lat)))
+    return lat + dlat, lon + dlon
+def create_dirivers(start: LatLon, dest:LatLon, radius: float, cont:int) -> List[DriverRoute]:
+    drivers = []
+    for _ in range(cont):
+        driver_start = random_offset(start, radius)
+        driver_end = random_offset(dest, radius)
+        d_geom, d_seg, d_cum, d_nodes = fetch_route(driver_start, driver_end, "driving")
+        driver = DriverRoute(
+            start=driver_start,
+            dest=driver_end,
+            profile="driving",
+            geometry_latlon=d_geom,
+            seg_dist_m=d_seg,
+            cum_dist_m=d_cum,
+            nodes=d_nodes,
+        )
+        drivers.append(driver)
+    return drivers
 
 def haversine_m(a: LatLon, b: LatLon) -> float:
     R = 6371000.0
@@ -171,43 +212,45 @@ walker = WalkerRoute(
     nodes=w_nodes,
 )
 
-pickup_lat, pickup_lon, pick_dist, dropoff_lat, dropoff_lon, drop_dist = find_pickup_and_dropoff(driver, walker)
-pickup = (pickup_lat, pickup_lon)
-dropoff = (dropoff_lat, dropoff_lon)
+drivers = create_dirivers(start, end, radius=500, cont=5)
+
+best = best_driver(drivers, walker)
 
 m = folium.Map(location=start, zoom_start=12)
 
-# markers
-folium.Marker(driver.start, tooltip="Driver Start", icon=folium.Icon(color="green")).add_to(m)
-folium.Marker(driver.dest, tooltip="Driver End", icon=folium.Icon(color="red")).add_to(m)
-folium.Marker(walker.start, tooltip="Walker Start", icon=folium.Icon(color="blue")).add_to(m)
-folium.Marker(walker.dest, tooltip="Walker End", icon=folium.Icon(color="orange")).add_to(m)
+folium.Marker(walker.start, popup="Walker Start", icon=folium.Icon(color='blue')).add_to(m)
+folium.Marker(walker.dest, popup="Walker End", icon=folium.Icon(color='orange')).add_to(m)
+folium.PolyLine(walker.geometry_latlon, color="red", weight=5, opacity=0.8, tooltip="Walker Route").add_to(m)
 
-# polylines
-folium.PolyLine(driver.geometry_latlon, weight=5, opacity=0.8).add_to(m)
-folium.PolyLine(walker.geometry_latlon, color="red", weight=5, opacity=0.8).add_to(m)
+for i, d in enumerate(drivers):
+    folium.PolyLine(d.geometry_latlon, color="violet", weight=3, opacity=1, tooltip=f"Driver {i} Route").add_to(m)
+    folium.Marker(d.start, tooltip=f"Driver {i} Start", icon=folium.Icon(color="lightgreen")).add_to(m)
+    folium.Marker(d.dest,  tooltip=f"Driver {i} End",   icon=folium.Icon(color="orange")).add_to(m)
 
-# pickup / dropoff markers
+folium.PolyLine(best.geometry_latlon, color="blue", weight=5, opacity=0.8, tooltip="Best Driver Route").add_to(m)
+folium.Marker(best.start, tooltip="Best Driver Start", icon=folium.Icon(color="green")).add_to(m)
+folium.Marker(best.dest,  tooltip="Best Driver End",   icon=folium.Icon(color="red")).add_to(m)
+
+pickup_lat, pickup_lon, pick_dist, dropoff_lat, dropoff_lon, drop_dist = find_pickup_and_dropoff(best, walker)
+pickup  = (pickup_lat, pickup_lon)
+dropoff = (dropoff_lat, dropoff_lon)
+
 folium.Marker(
     pickup,
-    tooltip="Pickup (Driver meets Walker)",
+    tooltip=f"Pickup (walk {pick_dist:.0f} m)",
     icon=folium.Icon(color="purple", icon="play")
 ).add_to(m)
 
 folium.Marker(
     dropoff,
-    tooltip="Dropoff (Driver leaves Walker)",
+    tooltip=f"Dropoff (walk {drop_dist:.0f} m)",
     icon=folium.Icon(color="black", icon="stop")
 ).add_to(m)
 
-
-
-# optional: visualize walker walking to pickup and from dropoff
 walker_to_pickup = fetch_route(walker.start, pickup, "walking")[0]
 walker_from_dropoff = fetch_route(dropoff, walker.dest, "walking")[0]
-folium.PolyLine(walker_to_pickup, color="cyan", weight=3, opacity=0.6, dash_array='5').add_to(m)
-folium.PolyLine(walker_from_dropoff, color="cyan", weight=3, opacity=0.6, dash_array='5').add_to(m)
-
+folium.PolyLine(walker_to_pickup, color="cyan", weight=3, opacity=0.7, dash_array="6").add_to(m)
+folium.PolyLine(walker_from_dropoff, color="cyan", weight=3, opacity=0.7, dash_array="6").add_to(m)
 
 m.save("map.html")
 webbrowser.open("map.html")
