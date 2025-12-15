@@ -4,6 +4,7 @@ import folium
 import requests
 import webbrowser
 from typing import List, Tuple, Optional
+from functools import lru_cache
 
 from DriverRoute import LatLon
 from WalkerRoute import WalkerRoute
@@ -19,7 +20,6 @@ def valid_ride(walker_direct_m: float, total_walk_m: float, min_saving_m: float 
 
 
 def best_driver(drivers: List[DriverRoute], walker: WalkerRoute) -> DriverRoute | None:
-    global pick_dist, drop_dist, total_walk
     best_driver = None
     best_total_walk = float("inf")
     for driver in drivers:
@@ -90,10 +90,8 @@ def _closest_point_index(points: List[LatLon], target: LatLon) -> int:
     return best_i
 
 
-def compute_walking_distance(a: LatLon, b: LatLon) -> float:
-    # Walking distance in meters using OSRM (profile='walking').
-    a_lat, a_lon = a
-    b_lat, b_lon = b
+@lru_cache(maxsize=50_000)
+def walking_distance_cached(a_lat, a_lon, b_lat, b_lon) -> float:
     coords = f"{a_lon},{a_lat};{b_lon},{b_lat}"
     url = f"{OSRM_BASE}/route/v1/walking/{coords}?overview=false"
     r = requests.get(url, timeout=60)
@@ -101,11 +99,14 @@ def compute_walking_distance(a: LatLon, b: LatLon) -> float:
     data = r.json()
     if data.get("code") != "Ok":
         raise RuntimeError(data)
-    route = data["routes"][0]
-    return route["distance"]
+    return data["routes"][0]["distance"]
+
+def compute_walking_distance(a: LatLon, b: LatLon) -> float:
+    return walking_distance_cached(a[0], a[1], b[0], b[1])
 
 
-def find_closest_dropout_point(driver: DriverRoute, walker: WalkerRoute, pickup: LatLon, k: int = 20) -> Tuple[LatLon, float, int]:
+
+def find_closest_dropout_point(driver: DriverRoute, walker: WalkerRoute, pickup: LatLon, k: int = 10) -> Tuple[LatLon, float, int]:
     pts = driver.geometry_latlon
 
     # robust: pickup index via nearest geometry point (not equality)
@@ -133,7 +134,7 @@ def find_closest_dropout_point(driver: DriverRoute, walker: WalkerRoute, pickup:
     return pts[best_i], best_d, best_i
 
 
-def find_closest_pickup_point(driver: DriverRoute, walker: WalkerRoute, k: int = 30) -> Tuple[LatLon, float, int]:
+def find_closest_pickup_point(driver: DriverRoute, walker: WalkerRoute, k: int = 15) -> Tuple[LatLon, float, int]:
     pts = driver.geometry_latlon
     cand_idx = _topk_by_haversine(pts, walker.start, k)
 
