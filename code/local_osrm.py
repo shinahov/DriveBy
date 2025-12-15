@@ -91,7 +91,7 @@ def compute_walking_distance(a: LatLon, b: LatLon) -> float:
     return route["distance"]
 
 
-def find_closest_dropout_point(driver: DriverRoute, walker: WalkerRoute, pickup: LatLon, k: int = 20) -> Tuple[LatLon, float]:
+def find_closest_dropout_point(driver: DriverRoute, walker: WalkerRoute, pickup: LatLon, k: int = 20) -> Tuple[LatLon, float, int]:
     pts = driver.geometry_latlon
 
     # robust: pickup index via nearest geometry point (not equality)
@@ -116,10 +116,10 @@ def find_closest_dropout_point(driver: DriverRoute, walker: WalkerRoute, pickup:
 
     if best_i is None:
         raise RuntimeError("No dropout point found")
-    return pts[best_i], best_d
+    return pts[best_i], best_d, best_i
 
 
-def find_closest_pickup_point(driver: DriverRoute, walker: WalkerRoute, k: int = 30) -> Tuple[LatLon, float]:
+def find_closest_pickup_point(driver: DriverRoute, walker: WalkerRoute, k: int = 30) -> Tuple[LatLon, float, int]:
     pts = driver.geometry_latlon
     cand_idx = _topk_by_haversine(pts, walker.start, k)
 
@@ -133,12 +133,14 @@ def find_closest_pickup_point(driver: DriverRoute, walker: WalkerRoute, k: int =
 
     if best_i is None:
         raise RuntimeError("No pickup point found")
-    return pts[best_i], best_d
+    return pts[best_i], best_d, best_i
 
 
 def find_pickup_and_dropoff(driver: DriverRoute, walker: WalkerRoute) -> Tuple[float, float, float, float, float, float]:
-    pickup,  pick_dist = find_closest_pickup_point(driver, walker)
-    dropoff, drop_dist = find_closest_dropout_point(driver, walker, pickup)
+    pickup,  pick_dist, pickup_index = find_closest_pickup_point(driver, walker)
+    dropoff, drop_dist, dropoff_index = find_closest_dropout_point(driver, walker, pickup)
+    if dropoff_index <= pickup_index:
+        raise RuntimeError("Dropoff is before pickup on driver route")
 
     return pickup[0], pickup[1], pick_dist, dropoff[0], dropoff[1], drop_dist
 
@@ -212,7 +214,7 @@ walker = WalkerRoute(
     nodes=w_nodes,
 )
 
-drivers = create_dirivers(start, end, radius=500, cont=5)
+drivers = create_dirivers(start, end, radius=500, cont=10)
 
 best = best_driver(drivers, walker)
 
@@ -220,10 +222,10 @@ m = folium.Map(location=start, zoom_start=12)
 
 folium.Marker(walker.start, popup="Walker Start", icon=folium.Icon(color='blue')).add_to(m)
 folium.Marker(walker.dest, popup="Walker End", icon=folium.Icon(color='orange')).add_to(m)
-folium.PolyLine(walker.geometry_latlon, color="red", weight=5, opacity=0.8, tooltip="Walker Route").add_to(m)
+folium.PolyLine(walker.geometry_latlon, color="green", weight=5, opacity=0.8, tooltip="Walker Route").add_to(m)
 
 for i, d in enumerate(drivers):
-    folium.PolyLine(d.geometry_latlon, color="violet", weight=3, opacity=1, tooltip=f"Driver {i} Route").add_to(m)
+    folium.PolyLine(d.geometry_latlon, color="red", weight=3, opacity=1, tooltip=f"Driver {i} Route").add_to(m)
     folium.Marker(d.start, tooltip=f"Driver {i} Start", icon=folium.Icon(color="lightgreen")).add_to(m)
     folium.Marker(d.dest,  tooltip=f"Driver {i} End",   icon=folium.Icon(color="orange")).add_to(m)
 
