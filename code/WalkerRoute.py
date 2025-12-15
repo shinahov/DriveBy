@@ -13,6 +13,8 @@ class WalkerRoute:
     """
     start: LatLon
     dest: LatLon
+    dist: float
+    duration : int
     profile: str  # e.g. "walking"
 
     geometry_latlon: List[LatLon]

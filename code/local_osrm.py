@@ -7,10 +7,20 @@ from typing import List, Tuple, Optional
 
 from DriverRoute import LatLon, DriverRoute
 from WalkerRoute import WalkerRoute
+from DriverRoute import DriverRoute
 
 OSRM_BASE = "http://localhost:5000"
 
-def best_driver(drivers: List[DriverRoute], walker: WalkerRoute) -> DriverRoute:
+
+def valid_ride(best_driver, walker, pick_dist, drop_dist, total_walk):
+    if walker.dist - total_walk >= 800 :
+        return True
+    else:
+        return False
+
+
+def best_driver(drivers: List[DriverRoute], walker: WalkerRoute) -> DriverRoute | None:
+    global pick_dist, drop_dist, total_walk
     best_driver = None
     best_total_walk = float("inf")
     for driver in drivers:
@@ -24,7 +34,10 @@ def best_driver(drivers: List[DriverRoute], walker: WalkerRoute) -> DriverRoute:
             continue
     if best_driver is None:
         raise RuntimeError("No suitable driver found")
-    return best_driver
+    if valid_ride(best_driver, walker, pick_dist, drop_dist, total_walk):
+        return best_driver
+    else:
+        return None
 
 def random_offset(point:LatLon , radius: float) -> Tuple[float, float]:
     lat, lon = point
@@ -38,10 +51,12 @@ def create_dirivers(start: LatLon, dest:LatLon, radius: float, cont:int) -> List
     for _ in range(cont):
         driver_start = random_offset(start, radius)
         driver_end = random_offset(dest, radius)
-        d_geom, d_seg, d_cum, d_nodes = fetch_route(driver_start, driver_end, "driving")
+        d_geom, d_seg, d_cum, d_nodes, dist, dur = fetch_route(driver_start, driver_end, "driving")
         driver = DriverRoute(
             start=driver_start,
             dest=driver_end,
+            dist= dist,
+            duration= dur,
             profile="driving",
             geometry_latlon=d_geom,
             seg_dist_m=d_seg,
@@ -175,14 +190,15 @@ def fetch_route(start: LatLon, dest: LatLon, profile: str):
     route = data["routes"][0]
     leg = route["legs"][0]
     ann = leg["annotation"]
-
+    total_dist_m = route["distance"]  # oder leg["distance"]
+    total_time_s = route["duration"]  # optional
     geometry_latlon = [(lat, lon) for lon, lat in route["geometry"]["coordinates"]]
     seg_dist = ann["distance"]
     nodes = ann.get("nodes")
 
     cum_dist = build_cum_dist(seg_dist)
 
-    return geometry_latlon, seg_dist, cum_dist, nodes
+    return geometry_latlon, seg_dist, cum_dist, nodes, total_dist_m, total_time_s
 
 
 start = (51.2562, 7.1508)
@@ -191,12 +207,14 @@ end = (51.2277, 6.7735)
 walker_start = (51.202561, 6.780486)
 walker_end = (51.219105, 6.787711)
 
-d_geom, d_seg, d_cum, d_nodes = fetch_route(start, end, "driving")
-w_geom, w_seg, w_cum, w_nodes = fetch_route(walker_start, walker_end, "walking")
+d_geom, d_seg, d_cum, d_nodes, d_dist, d_dur = fetch_route(start, end, "driving")
+w_geom, w_seg, w_cum, w_nodes, w_dist, w_dur = fetch_route(walker_start, walker_end, "walking")
 
 driver = DriverRoute(
     start=start,
     dest=end,
+    dist= d_dist,
+    duration=d_dur,
     profile="driving",
     geometry_latlon=d_geom,
     seg_dist_m=d_seg,
@@ -207,6 +225,8 @@ driver = DriverRoute(
 walker = WalkerRoute(
     start=walker_start,
     dest=walker_end,
+    dist= w_dist,
+    duration=w_dur,
     profile="walking",
     geometry_latlon=w_geom,
     seg_dist_m=w_seg,
@@ -217,7 +237,8 @@ walker = WalkerRoute(
 drivers = create_dirivers(start, end, radius=500, cont=10)
 
 best = best_driver(drivers, walker)
-
+if best == None:
+    print("none")
 m = folium.Map(location=start, zoom_start=12)
 
 folium.Marker(walker.start, popup="Walker Start", icon=folium.Icon(color='blue')).add_to(m)

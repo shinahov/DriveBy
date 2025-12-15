@@ -16,6 +16,8 @@ class DriverRoute:
     """
     start: LatLon
     dest: LatLon
+    dist: float
+    duration: int
     profile: str  # e.g. "driving"
 
     geometry_latlon: List[LatLon]
