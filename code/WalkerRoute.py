@@ -14,7 +14,9 @@ class WalkerRoute:
     start: LatLon
     dest: LatLon
     dist: float
-    duration : int
+    duration : float
+    duration_list : List[float]
+    cum_time_s : List[float]
     profile: str  # e.g. "walking"
 
     geometry_latlon: List[LatLon]

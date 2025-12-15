@@ -17,7 +17,9 @@ class DriverRoute:
     start: LatLon
     dest: LatLon
     dist: float
-    duration: int
+    duration: float
+    duration_list: List[float]
+    cum_time_s: List[float]
     profile: str  # e.g. "driving"
 
     geometry_latlon: List[LatLon]

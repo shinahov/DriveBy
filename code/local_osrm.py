@@ -50,12 +50,14 @@ def create_dirivers(start: LatLon, dest:LatLon, radius: float, cont:int) -> List
     for _ in range(cont):
         driver_start = random_offset(start, radius)
         driver_end = random_offset(dest, radius)
-        d_geom, d_seg, d_cum, d_nodes, dist, dur = fetch_route(driver_start, driver_end, "driving")
+        d_geom, d_seg, d_cum, d_nodes, dist, dur, dur_list, cum_dur_list = fetch_route(driver_start, driver_end, "driving")
         driver = DriverRoute(
             start=driver_start,
             dest=driver_end,
             dist= dist,
             duration= dur,
+            duration_list=dur_list,
+            cum_time_s=cum_dur_list,
             profile="driving",
             geometry_latlon=d_geom,
             seg_dist_m=d_seg,
@@ -160,13 +162,15 @@ def find_pickup_and_dropoff(driver, walker):
 
 
 
-def build_cum_dist(seg_dist: List[float]) -> List[float]:
+def cum_float_array(seg_dist: List[float]) -> List[float]:
     cum = [0.0]
     total = 0.0
     for d in seg_dist:
         total += d
         cum.append(total)
     return cum
+
+
 
 
 def fetch_route(start: LatLon, dest: LatLon, profile: str):
@@ -190,15 +194,24 @@ def fetch_route(start: LatLon, dest: LatLon, profile: str):
     route = data["routes"][0]
     leg = route["legs"][0]
     ann = leg["annotation"]
+    duration_list = ann["duration"]
+    cum_time_s = cum_float_array(duration_list)
     total_dist_m = route["distance"]  # oder leg["distance"]
     total_time_s = route["duration"]  # optional
     geometry_latlon = [(lat, lon) for lon, lat in route["geometry"]["coordinates"]]
     seg_dist = ann["distance"]
     nodes = ann.get("nodes")
 
-    cum_dist = build_cum_dist(seg_dist)
+    cum_dist = cum_float_array(seg_dist)
 
-    return geometry_latlon, seg_dist, cum_dist, nodes, total_dist_m, total_time_s
+    return (geometry_latlon,
+            seg_dist,
+            cum_dist,
+            nodes,
+            total_dist_m,
+            total_time_s,
+            duration_list,
+            cum_time_s)
 
 
 start = (51.2562, 7.1508)
@@ -207,14 +220,16 @@ end = (51.2277, 6.7735)
 walker_start = (51.202561, 6.780486)
 walker_end = (51.219105, 6.787711)
 
-d_geom, d_seg, d_cum, d_nodes, d_dist, d_dur = fetch_route(start, end, "driving")
-w_geom, w_seg, w_cum, w_nodes, w_dist, w_dur = fetch_route(walker_start, walker_end, "walking")
+d_geom, d_seg, d_cum, d_nodes, d_dist, d_dur, d_dur_list, d_cum_dur_list = fetch_route(start, end, "driving")
+w_geom, w_seg, w_cum, w_nodes, w_dist, w_dur, w_dur_list, w_cum_dur_list = fetch_route(walker_start, walker_end, "walking")
 
 driver = DriverRoute(
     start=start,
     dest=end,
     dist= d_dist,
     duration=d_dur,
+    duration_list= d_dur_list,
+    cum_time_s=d_cum_dur_list,
     profile="driving",
     geometry_latlon=d_geom,
     seg_dist_m=d_seg,
@@ -227,6 +242,8 @@ walker = WalkerRoute(
     dest=walker_end,
     dist= w_dist,
     duration=w_dur,
+    duration_list= w_dur_list,
+    cum_time_s=w_cum_dur_list,
     profile="walking",
     geometry_latlon=w_geom,
     seg_dist_m=w_seg,
