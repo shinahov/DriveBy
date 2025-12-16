@@ -9,6 +9,7 @@ from functools import lru_cache
 from DriverRoute import LatLon, DriverRoute
 from WalkerRoute import WalkerRoute
 from Match import Match
+from AgentState import AgentState
 
 OSRM_BASE = "http://localhost:5000"
 
@@ -35,7 +36,7 @@ def haversine_m(a: LatLon, b: LatLon) -> float:
     return 2 * R * math.asin(math.sqrt(x))
 
 
-def topk_by_haversine(points: List[LatLon], target: LatLon, k: int) -> List[int]:
+def topk_by_haversine(points: List[LatLon], target: LatLon, k: int) -> list[float]:
     idx_d = [(i, haversine_m(p, target)) for i, p in enumerate(points)]
     idx_d.sort(key=lambda t: t[1])
     return [i for i, _ in idx_d[:min(k, len(idx_d))]]
@@ -123,13 +124,13 @@ def random_offset(point: LatLon, radius_m: float) -> LatLon:
 
 def create_drivers(start: LatLon, dest: LatLon, radius_m: float, count: int) -> List[DriverRoute]:
     drivers = []
+    driver_agents= []
     for _ in range(count):
         s = random_offset(start, radius_m)
         e = random_offset(dest, radius_m)
 
         r = fetch_route(s, e, "driving")
-        drivers.append(
-            DriverRoute(
+        driver = DriverRoute(
                 start=s,
                 dest=e,
                 dist=r["total_dist"],
@@ -142,8 +143,15 @@ def create_drivers(start: LatLon, dest: LatLon, radius_m: float, count: int) -> 
                 cum_dist_m=r["cum_dist"],
                 nodes=r["nodes"],
             )
+        drivers.append(
+            driver
         )
-    return drivers
+        driver_agents.append(
+            AgentState(
+                route=driver,
+                pos=driver.start
+            ))
+    return drivers, driver_agents
 
 
 # -------------------------
@@ -168,7 +176,8 @@ def find_pickup(driver: DriverRoute, walker: WalkerRoute, k: int = 15) -> Tuple[
     return pts[best_i], best_m, best_s, best_i
 
 
-def find_dropoff(driver: DriverRoute, walker: WalkerRoute, pickup: LatLon, pickup_i: int, k: int = 10) -> Tuple[LatLon, float, float, int]:
+def find_dropoff(driver: DriverRoute, walker: WalkerRoute, pickup: LatLon, pickup_i: int, k: int = 10) -> tuple[
+    Any, float, float, float]:
     pts = driver.geometry_latlon
     tail = pts[pickup_i + 1 :]
     if not tail:
@@ -304,7 +313,7 @@ walker = WalkerRoute(
     nodes=wr["nodes"],
 )
 
-drivers = create_drivers(start, end, radius_m=500, count=10)
+drivers, driver_agents = create_drivers(start, end, radius_m=500, count=10)
 match = best_match(drivers, walker, min_saving_m=800)
 
 if match is None:
