@@ -28,8 +28,8 @@ class MatchSimulation:
         self.driver_agent.update_position(t_s)
 
         t_walk_to_pickup_end = self.match.walk_route_to_pickup.duration
-        t_driver_pickup = self.match.driver_time_at_pickup_seconds
-        t_driver_dropoff = self.match.driver_time_at_dropoff_seconds
+        t_driver_pickup = self.match.driver_pickup_eta_s
+        t_driver_dropoff = self.match.driver_dropoff_eta_s
         t_walk_from_dropoff_end = t_driver_dropoff + self.match.walk_route_from_dropoff.duration
 
         if t_s < t_walk_to_pickup_end:
@@ -39,7 +39,7 @@ class MatchSimulation:
 
         elif t_s < t_driver_pickup:
             self.phase = Phase.WAIT_AT_PICKUP
-            self.walker_pos = self.match.pickup_position
+            self.walker_pos = self.match.pickup
 
         elif t_s < t_driver_dropoff:
             self.phase = Phase.RIDE_WITH_DRIVER

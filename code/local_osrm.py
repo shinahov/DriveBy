@@ -1,5 +1,7 @@
 import math
 import random
+import time
+
 import folium
 import requests
 import webbrowser
@@ -10,6 +12,8 @@ from DriverRoute import LatLon, DriverRoute
 from WalkerRoute import WalkerRoute
 from Match import Match
 from AgentState import AgentState
+from MatchSimulation import MatchSimulation
+from realtime_runner import *
 
 OSRM_BASE = "http://localhost:5000"
 
@@ -364,7 +368,58 @@ else:
 
 all_agents: list[tuple[str, AgentState]] = []
 
-# all driver agents
+
 for i, a in enumerate(driver_agents):
     all_agents.append((f"Driver {i}", a))
 
+
+best_driver_agent = None
+for agent in driver_agents:
+    if agent.route is match.driver:
+        best_driver_agent = agent
+        break
+
+if best_driver_agent is None:
+    raise RuntimeError("Matched driver agent not found")
+
+
+start_server(8000)
+webbrowser.open("http://127.0.0.1:8000/map.html")
+
+sim = MatchSimulation(
+    match=match,
+    driver_agent=best_driver_agent,
+    walk_to_pickup_agent=AgentState(
+        route=match.walk_route_to_pickup,
+        pos=match.walk_route_to_pickup.start
+    ),
+    walk_from_dropoff_agent=AgentState(
+        route=match.walk_route_from_dropoff,
+        pos=match.walk_route_from_dropoff.start
+    ),
+)
+
+t = 0.0
+dt = 0.2
+
+while True:
+    for a in driver_agents:
+        if a is best_driver_agent:
+            continue
+        a.update_position(t)
+
+    sim.update(t)
+
+    walker_pos = sim.get_walker_pos()
+    driver_positions = [a.get_pos() for a in driver_agents]
+
+    data = {
+        "t_s": t,
+        "walker": {"lat": walker_pos[0], "lon": walker_pos[1]},
+        "drivers": [{"lat": p[0], "lon": p[1]} for p in driver_positions],
+    }
+
+    write_positions_json(data)
+
+    time.sleep(dt)
+    t += dt
