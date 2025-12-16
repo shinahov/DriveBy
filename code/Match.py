@@ -6,6 +6,8 @@ from WalkerRoute import WalkerRoute
 class Match:
     driver: DriverRoute
     walker: WalkerRoute
+    walk_route_to_pickup: WalkerRoute  # walker_start -> pickup
+    walk_route_from_dropoff: WalkerRoute  # dropoff -> walker_dest
 
     pickup: LatLon
     dropoff: LatLon
@@ -13,21 +15,21 @@ class Match:
     dropoff_index: int
 
     # walking to pickup / from dropoff
-    pick_walk_m: float
-    drop_walk_m: float
-    total_walk_m: float
+    pick_walk_dist_meters: float
+    drop_walk_dist_meters: float
+    total_walk_dist_meters: float
 
-    pick_walk_s: float
-    drop_walk_s: float
-    total_walk_s: float
+    pick_walk_duration_seconds: float
+    drop_walk_duration_seconds: float
+    total_walk_duration_seconds: float
 
     # ride on driver's route
-    ride_m: float
-    ride_s: float
+    ride_dist_meters: float
+    ride_duration_seconds: float
 
     # benefit
-    saving_m: float
-    saving_s: float
+    saving_dist_meters: float
+    saving_duration_seconds: float
 
     # driver ETAs relative to driver route start (optional but useful)
     driver_pickup_eta_s: float

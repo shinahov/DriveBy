@@ -56,7 +56,27 @@ def closest_point_index(points: List[LatLon], target: LatLon) -> int:
 # -------------------------
 # OSRM route fetch + cache
 # -------------------------
-def fetch_route(start: LatLon, dest: LatLon, profile: str) -> Dict[str, Any]:
+
+def build_walker_route(start: LatLon, dest: LatLon, profile: str = "walking") -> WalkerRoute:
+    r = fetch_route(start, dest, profile)
+
+    return WalkerRoute(
+        start=start,
+        dest=dest,
+        dist=r["total_dist"],
+        duration=r["total_time"],
+        duration_list=r["seg_time"],
+        cum_time_s=r["cum_time"],
+        profile=profile,
+        geometry_latlon=r["geometry"],
+        seg_dist_m=r["seg_dist"],
+        cum_dist_m=r["cum_dist"],
+        nodes=r["nodes"],
+    )
+
+def fetch_route(start: LatLon,
+                dest: LatLon,
+                profile: str) -> Dict[str, Any]:
     a_lat, a_lon = start
     b_lat, b_lon = dest
 
@@ -122,7 +142,10 @@ def random_offset(point: LatLon, radius_m: float) -> LatLon:
     return lat + dlat, lon + dlon
 
 
-def create_drivers(start: LatLon, dest: LatLon, radius_m: float, count: int) -> List[DriverRoute]:
+def create_drivers(start: LatLon,
+                   dest: LatLon,
+                   radius_m: float,
+                   count: int) -> List[DriverRoute]:
     drivers = []
     driver_agents= []
     for _ in range(count):
@@ -157,7 +180,10 @@ def create_drivers(start: LatLon, dest: LatLon, radius_m: float, count: int) -> 
 # -------------------------
 # pickup / dropoff selection
 # -------------------------
-def find_pickup(driver: DriverRoute, walker: WalkerRoute, k: int = 15) -> Tuple[LatLon, float, float, int]:
+def find_pickup(driver: DriverRoute,
+                walker: WalkerRoute,
+                k: int = 15) -> (
+        Tuple)[LatLon, float, float, int]:
     pts = driver.geometry_latlon
     cand_idx = topk_by_haversine(pts, walker.start, k)
 
@@ -176,8 +202,12 @@ def find_pickup(driver: DriverRoute, walker: WalkerRoute, k: int = 15) -> Tuple[
     return pts[best_i], best_m, best_s, best_i
 
 
-def find_dropoff(driver: DriverRoute, walker: WalkerRoute, pickup: LatLon, pickup_i: int, k: int = 10) -> tuple[
-    Any, float, float, float]:
+def find_dropoff(driver: DriverRoute,
+                 walker: WalkerRoute,
+                 pickup: LatLon,
+                 pickup_i: int,
+                 k: int = 10) -> (
+        tuple)[Any, float, float, float]:
     pts = driver.geometry_latlon
     tail = pts[pickup_i + 1 :]
     if not tail:
@@ -216,30 +246,35 @@ def build_match(driver: DriverRoute, walker: WalkerRoute) -> Match:
     saving_m = walker.dist - total_walk_m
     saving_s = walker.duration - total_walk_s
 
+    walk_route_to_pickup = build_walker_route(walker.start, pickup, "walking")
+    walk_route_from_dropoff = build_walker_route(dropoff, walker.dest, "walking")
+
     return Match(
         driver=driver,
         walker=walker,
+        walk_route_to_pickup=walk_route_to_pickup,
+        walk_route_from_dropoff=walk_route_from_dropoff,
         pickup=pickup,
         dropoff=dropoff,
         pickup_index=pi,
         dropoff_index=di,
-        pick_walk_m=pick_m,
-        drop_walk_m=drop_m,
-        total_walk_m=total_walk_m,
-        pick_walk_s=pick_s,
-        drop_walk_s=drop_s,
-        total_walk_s=total_walk_s,
-        ride_m=ride_m,
-        ride_s=ride_s,
-        saving_m=saving_m,
-        saving_s=saving_s,
+        pick_walk_dist_meters=pick_m,
+        drop_walk_dist_meters=drop_m,
+        total_walk_dist_meters=total_walk_m,
+        pick_walk_duration_seconds=pick_s,
+        drop_walk_duration_seconds=drop_s,
+        total_walk_duration_seconds=total_walk_s,
+        ride_dist_meters=ride_m,
+        ride_duration_seconds=ride_s,
+        saving_dist_meters=saving_m,
+        saving_duration_seconds=saving_s,
         driver_pickup_eta_s=driver.cum_time_s[pi],
         driver_dropoff_eta_s=driver.cum_time_s[di],
     )
 
 
 def valid_match(match: Match, min_saving_m: float = 800.0) -> bool:
-    return match.saving_m >= min_saving_m
+    return match.saving_dist_meters >= min_saving_m
 
 
 def best_match(drivers: List[DriverRoute], walker: WalkerRoute, min_saving_m: float = 800.0) -> Optional[Match]:
@@ -251,8 +286,8 @@ def best_match(drivers: List[DriverRoute], walker: WalkerRoute, min_saving_m: fl
             m = build_match(d, walker)
             if not valid_match(m, min_saving_m=min_saving_m):
                 continue
-            if m.total_walk_m < best_total_walk:
-                best_total_walk = m.total_walk_m
+            if m.total_walk_dist_meters < best_total_walk:
+                best_total_walk = m.total_walk_dist_meters
                 best = m
         except RuntimeError:
             continue
@@ -276,8 +311,8 @@ def draw_map(drivers: List[DriverRoute], match: Optional[Match], walker: WalkerR
     if match is not None:
         folium.PolyLine(match.driver.geometry_latlon, color="blue", weight=5, opacity=0.8, tooltip="Best Driver Route").add_to(m)
 
-        folium.Marker(match.pickup, tooltip=f"Pickup (walk {match.pick_walk_m:.0f} m)", icon=folium.Icon(color="purple")).add_to(m)
-        folium.Marker(match.dropoff, tooltip=f"Dropoff (walk {match.drop_walk_m:.0f} m)", icon=folium.Icon(color="black")).add_to(m)
+        folium.Marker(match.pickup, tooltip=f"Pickup (walk {match.pick_walk_dist_meters:.0f} m)", icon=folium.Icon(color="purple")).add_to(m)
+        folium.Marker(match.dropoff, tooltip=f"Dropoff (walk {match.drop_walk_dist_meters:.0f} m)", icon=folium.Icon(color="black")).add_to(m)
 
         # walking lines for visualization (use cached routes)
         wtp = route_cached(walker.start[0], walker.start[1], match.pickup[0], match.pickup[1], "walking")["geometry"]
@@ -312,6 +347,10 @@ walker = WalkerRoute(
     cum_dist_m=wr["cum_dist"],
     nodes=wr["nodes"],
 )
+walker_agent = AgentState(
+    route=walker,
+    pos=walker.start
+)
 
 drivers, driver_agents = create_drivers(start, end, radius_m=500, count=10)
 match = best_match(drivers, walker, min_saving_m=800)
@@ -319,6 +358,6 @@ match = best_match(drivers, walker, min_saving_m=800)
 if match is None:
     print("no match")
 else:
-    print("saving_m:", match.saving_m, "ride_m:", match.ride_m, "walk_m:", match.total_walk_m)
+    print("saving_m:", match.saving_dist_meters, "ride_m:", match.ride_dist_meters, "walk_m:", match.total_walk_dist_meters)
 
 draw_map(drivers, match, walker, center=start)
