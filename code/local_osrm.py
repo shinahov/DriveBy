@@ -296,7 +296,7 @@ def best_match(drivers: List[DriverRoute], walker: WalkerRoute, min_saving_m: fl
 
 
 # -------------------------
-# demo / map
+# demo / map (OBSOLET)
 # -------------------------
 def draw_map(drivers: List[DriverRoute], match: Optional[Match], walker: WalkerRoute, center: LatLon) -> None:
     m = folium.Map(location=center, zoom_start=12)
@@ -360,4 +360,11 @@ if match is None:
 else:
     print("saving_m:", match.saving_dist_meters, "ride_m:", match.ride_dist_meters, "walk_m:", match.total_walk_dist_meters)
 
-draw_map(drivers, match, walker, center=start)
+#draw_map(drivers, match, walker, center=start)
+
+all_agents: list[tuple[str, AgentState]] = []
+
+# all driver agents
+for i, a in enumerate(driver_agents):
+    all_agents.append((f"Driver {i}", a))
+
