@@ -1,6 +1,6 @@
 from dataclasses import dataclass
-from DriverRoute import LatLon, DriverRoute
-from WalkerRoute import WalkerRoute
+from RouteBase import LatLon, DriverRoute, WalkerRoute
+
 
 @dataclass
 class Match:
