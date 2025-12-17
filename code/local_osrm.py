@@ -14,7 +14,8 @@ from AgentState import AgentState
 from MatchSimulation import MatchSimulation
 from realtime_runner import *
 
-OSRM_BASE = "http://localhost:5000"
+OSRM_DRIVE = "http://localhost:5000"
+OSRM_WALK  = "http://localhost:5001"
 
 
 # -------------------------
@@ -77,15 +78,29 @@ def build_walker_route(start: LatLon, dest: LatLon, profile: str = "walking") ->
         nodes=r["nodes"],
     )
 
-def fetch_route(start: LatLon,
-                dest: LatLon,
-                profile: str) -> Dict[str, Any]:
+
+def fetch_drive_route(start: LatLon, dest: LatLon):
+    return fetch_route(start, dest, "driving")
+
+
+def fetch_walk_route(start: LatLon, dest: LatLon):
+    return fetch_route(start, dest, "walking")
+
+
+def fetch_route(start: LatLon, dest: LatLon, profile: str):
+    if profile == "walking":
+        base = OSRM_WALK
+    elif profile == "driving":
+        base = OSRM_DRIVE
+    else:
+        raise ValueError(f"Unknown profile: {profile}")
+
     a_lat, a_lon = start
     b_lat, b_lon = dest
 
     coords = f"{a_lon},{a_lat};{b_lon},{b_lat}"
     url = (
-        f"{OSRM_BASE}/route/v1/{profile}/{coords}"
+        f"{base}/route/v1/{profile}/{coords}"
         "?overview=full&geometries=geojson&annotations=true&steps=false"
     )
 
@@ -355,6 +370,12 @@ walker_agent = AgentState(
 
 drivers, driver_agents = create_drivers(start, end, radius_m=500, count=10)
 match = best_match(drivers, walker, min_saving_m=800)
+
+print("walk dist m:", walker.dist, "walk dur s:", walker.duration, "m/s:", walker.dist / walker.duration)
+wr = fetch_route(walker_start, walker_end, "walking")
+dr = fetch_route(walker_start, walker_end, "driving")
+print("walk:", wr["total_time"], "drive:", dr["total_time"])
+
 
 if match is None:
     print("no match")
