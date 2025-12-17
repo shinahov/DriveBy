@@ -1,36 +1,90 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <title>Realtime Simulation</title>
+    <meta charset="utf-8"/>
+    <title>Realtime Simulation</title>
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
-  <style>
-    html, body { height: 100%; margin: 0; }
-    #map { height: 100%; width: 100%; }
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
 
-    .info {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: white;
-      padding: 8px 10px;
-      border-radius: 6px;
-      font-family: sans-serif;
-      font-size: 14px;
-      z-index: 9999;
-      box-shadow: 0 1px 6px rgba(0,0,0,0.2);
-      white-space: pre;
-    }
-  </style>
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+
+        .pulse-black {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #000;
+            border: 2px solid #fff;
+            box-shadow: 0 0 0 rgba(0, 0, 0, 0.6);
+            animation: pulseBlack 1.2s infinite;
+        }
+
+        .controls{
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 10000;
+            display: flex;
+            gap: 8px;
+        }
+
+        .controls button {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            background: white;
+            cursor: pointer;
+        }
+
+
+        @keyframes pulseBlack {
+            0% {
+                box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.55);
+                transform: scale(1.0);
+            }
+            70% {
+                box-shadow: 0 0 0 10px rgba(0, 0, 0, 0.00);
+                transform: scale(1.05);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.00);
+                transform: scale(1.0);
+            }
+        }
+
+        .info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-family: sans-serif;
+            font-size: 14px;
+            z-index: 9999;
+            box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+            white-space: pre;
+        }
+    </style>
 </head>
 
 <body>
-  <div id="map"></div>
-  <div class="info" id="info">Starting...</div>
+<div id="map"></div>
+<div class="controls">
+  <button id="btn-faster">Faster</button>
+  <button id="btn-slower">Slower</button>
+</div>
+<div class="info" id="info">Starting...</div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="map.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="map.js"></script>
 </body>
 </html>

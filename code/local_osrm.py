@@ -495,5 +495,6 @@ while True:
 
     write_positions_json(data)
     #time.sleep(dt)
+    dt = MyHandler.speed
     t += dt
 
