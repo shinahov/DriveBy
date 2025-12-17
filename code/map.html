@@ -90,9 +90,24 @@
         const w2 = data.walk_from_dropoff.geometry_latlon;
 
         // Create route lines once
-        lineDriver = L.polyline(d,  { weight: 6 }).addTo(map);
-        lineWalkToPickup = L.polyline(w1, { weight: 5, dashArray: "8 10" }).addTo(map);
-        lineWalkFromDropoff = L.polyline(w2, { weight: 5, dashArray: "8 10" }).addTo(map);
+        lineDriver = L.polyline(d, {
+          color: "#1f77b4",   // blue
+          weight: 6,
+          opacity: 0.9
+        }).addTo(map);
+        lineWalkToPickup = L.polyline(w1, {
+  color: "#2ca02c",   // green
+  weight: 5,
+  opacity: 0.9,
+  dashArray: "8 10"
+}).addTo(map);
+
+lineWalkFromDropoff = L.polyline(w2, {
+  color: "#2ca02c",
+  weight: 5,
+  opacity: 0.9,
+  dashArray: "8 10"
+}).addTo(map);
 
         // Pickup/Dropoff markers
         const pts = data.points;

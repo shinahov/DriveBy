@@ -494,6 +494,6 @@ while True:
     }
 
     write_positions_json(data)
-    time.sleep(dt)
+    #time.sleep(dt)
     t += dt
 
