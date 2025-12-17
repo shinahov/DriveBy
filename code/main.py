@@ -75,4 +75,4 @@ folium.PolyLine(path_latlon_walker, color="red", weight=5, opacity=0.8).add_to(m
 # Save map to HTML file
 m.save("map.html")
 # Open map in web browser
-webbrowser.open("map.html")
+webbrowser.open("web/map.html")

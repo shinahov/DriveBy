@@ -10,7 +10,8 @@ def start_server(port: int = 8000):
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
 def write_positions_json(data, filename="positions.json", retries=30, sleep_s=0.01):
-    dir_name = os.path.dirname(os.path.abspath(filename)) or "."
+    path = os.path.join("web/", filename)
+    dir_name = os.path.dirname(os.path.abspath(path)) or "."
     last_err = None
 
     for _ in range(retries):
@@ -22,7 +23,7 @@ def write_positions_json(data, filename="positions.json", retries=30, sleep_s=0.
                 f.flush()
                 os.fsync(f.fileno())
 
-            os.replace(tmp_path, filename)
+            os.replace(tmp_path, path)
             return
         except PermissionError as e:
             last_err = e

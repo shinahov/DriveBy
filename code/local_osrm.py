@@ -367,7 +367,7 @@ def draw_map(drivers: List[DriverRoute], match: Optional[Match], walker: WalkerR
         folium.PolyLine(wfd, color="cyan", weight=3, opacity=0.7, dash_array="6").add_to(m)
 
     m.save("map.html")
-    webbrowser.open("map.html")
+    webbrowser.open("web/map.html")
 
 
 # -------------------------
@@ -465,7 +465,7 @@ data0 = {
 write_positions_json(data0)
 
 # 3) open browser once (optional cache buster)
-webbrowser.open("http://127.0.0.1:8000/map.html?v=" + str(time.time()))
+webbrowser.open("http://127.0.0.1:8000/web/map.html?v=" + str(time.time()))
 
 # 4) main loop
 t = 0.0
