@@ -4,12 +4,12 @@
   <meta charset="utf-8"/>
   <title>Realtime Simulation</title>
 
-  <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
   <style>
     html, body { height: 100%; margin: 0; }
     #map { height: 100%; width: 100%; }
+
     .info {
       position: absolute;
       top: 10px;
@@ -21,77 +21,144 @@
       font-size: 14px;
       z-index: 9999;
       box-shadow: 0 1px 6px rgba(0,0,0,0.2);
+      white-space: pre;
     }
   </style>
 </head>
 
 <body>
   <div id="map"></div>
-  <div class="info" id="info">Waiting for positions.json ...</div>
+  <div class="info" id="info">Starting...</div>
 
-  <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
-    // 1) Map
-    const map = L.map('map').setView([51.2562, 7.1508], 12); // Wuppertal default
+    // ---------- Map setup ----------
+    const map = L.map("map").setView([51.2562, 7.1508], 12);
 
-    // 2) (OpenStreetMap Tiles)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
+      attribution: "&copy; OpenStreetMap contributors"
     }).addTo(map);
 
-    // 3) Marker-Container
-    // Walker marker
-    const walkerMarker = L.circleMarker([51.2562, 7.1508], { radius: 8 }).addTo(map);
+    const infoEl = document.getElementById("info");
 
-    // Driver marker array
-    const driverMarkers = [];
+    // ---------- Layers / markers ----------
+    let routesLoaded = false;
 
-    //Status-UI
-    const info = document.getElementById("info");
+    let lineDriver = null;
+    let lineWalkToPickup = null;
+    let lineWalkFromDropoff = null;
 
-    function ensureDriverMarkers(n) {
-      while (driverMarkers.length < n) {
-        const idx = driverMarkers.length;
-        const m = L.circleMarker([0,0], { radius: 5 }).addTo(map);
+    let pickupMarker = null;
+    let dropoffMarker = null;
+
+    const walkerMarker = L.circleMarker([0, 0], { radius: 8 }).addTo(map);
+    const bestDriverMarker = L.circleMarker([0, 0], { radius: 7 }).addTo(map);
+
+    const otherDriverMarkers = [];
+
+    function ensureOtherDriverMarkers(n) {
+      while (otherDriverMarkers.length < n) {
+        const idx = otherDriverMarkers.length;
+        const m = L.circleMarker([0, 0], { radius: 5 }).addTo(map);
         m.bindTooltip("Driver " + idx);
-        driverMarkers.push(m);
+        otherDriverMarkers.push(m);
+      }
+      while (otherDriverMarkers.length > n) {
+        const m = otherDriverMarkers.pop();
+        map.removeLayer(m);
       }
     }
 
-    // 4) positions.json
-    async function updateFromPositions() {
+    // ---------- Helpers ----------
+    async function fetchJsonNoCache(url) {
+      const res = await fetch(url + "?ts=" + Date.now());
+      if (!res.ok) throw new Error("HTTP " + res.status + " for " + url);
+      return await res.json();
+    }
+
+    // ---------- Routes (load until available) ----------
+    async function tryLoadRoutes() {
+      if (routesLoaded) return;
+
       try {
-        // cache-buster
-        const res = await fetch('positions.json?ts=' + Date.now());
-        const data = await res.json();
+        const data = await fetchJsonNoCache("routes.json");
 
-        // walker
-        const w = data.walker; // {lat, lon}
-        walkerMarker.setLatLng([w.lat, w.lon]);
+        const d  = data.driver_route.geometry_latlon;       // [[lat, lon], ...]
+        const w1 = data.walk_to_pickup.geometry_latlon;
+        const w2 = data.walk_from_dropoff.geometry_latlon;
 
-        // drivers
-        const drivers = data.drivers; // list of {lat, lon}
-        ensureDriverMarkers(drivers.length);
+        // Create route lines once
+        lineDriver = L.polyline(d,  { weight: 6 }).addTo(map);
+        lineWalkToPickup = L.polyline(w1, { weight: 5, dashArray: "8 10" }).addTo(map);
+        lineWalkFromDropoff = L.polyline(w2, { weight: 5, dashArray: "8 10" }).addTo(map);
 
-        for (let i = 0; i < drivers.length; i++) {
-          driverMarkers[i].setLatLng([drivers[i].lat, drivers[i].lon]);
+        // Pickup/Dropoff markers
+        const pts = data.points;
+        pickupMarker = L.circleMarker(pts.pickup,  { radius: 7 }).addTo(map).bindTooltip("Pickup");
+        dropoffMarker = L.circleMarker(pts.dropoff, { radius: 7 }).addTo(map).bindTooltip("Dropoff");
+
+        // Zoom to all route points
+        const allPts = d.concat(w1).concat(w2);
+        map.fitBounds(allPts, { padding: [30, 30] });
+
+        routesLoaded = true;
+        infoEl.textContent = "Routes loaded.\nWaiting for positions.json ...";
+      } catch (e) {
+        // Keep retrying until the file exists and is valid JSON
+        infoEl.textContent = "Waiting for routes.json ...";
+      }
+    }
+
+    // ---------- Positions (continuous updates) ----------
+    async function updatePositions() {
+      try {
+        const data = await fetchJsonNoCache("positions.json");
+
+        // Walker marker
+        if (data.walker) {
+          walkerMarker.setLatLng([data.walker.lat, data.walker.lon]);
         }
 
-        // optional: map center on walker
-        // map.panTo([w.lat, w.lon], { animate: false });
+        // Best driver marker (optional)
+        if (data.driver) {
+          bestDriverMarker.setLatLng([data.driver.lat, data.driver.lon]);
+        }
 
-        info.textContent = "t = " + Math.round(data.t_s) + " s | drivers = " + drivers.length;
-      } catch (err) {
-        info.textContent = "Waiting for positions.json ...";
+        // Other drivers list
+        const drivers = Array.isArray(data.drivers) ? data.drivers : [];
+        ensureOtherDriverMarkers(drivers.length);
+
+        for (let i = 0; i < drivers.length; i++) {
+          otherDriverMarkers[i].setLatLng([drivers[i].lat, drivers[i].lon]);
+        }
+
+        const t = (typeof data.t_s === "number") ? Math.round(data.t_s) : "?";
+        const phase = data.phase ? data.phase : "-";
+
+        infoEl.textContent =
+          "time = " + t + " s\n" +
+          "phase = " + phase + "\n" +
+          "other drivers = " + drivers.length;
+
+      } catch (e) {
+        infoEl.textContent = routesLoaded
+          ? "Routes loaded.\nWaiting for positions.json ..."
+          : "Waiting for routes.json ...";
       }
     }
 
-    // 5) Update Loop start
-    // 200ms = 5 Hz (smooth)
-    setInterval(updateFromPositions, 200);
+    // ---------- Scheduling ----------
+    // Routes: retry until present
+    setInterval(tryLoadRoutes, 300);
+
+    // Positions: update continuously
+    setInterval(updatePositions, 200);
+
+    // Start immediately
+    tryLoadRoutes();
+    updatePositions();
   </script>
 </body>
 </html>

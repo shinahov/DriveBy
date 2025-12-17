@@ -311,6 +311,36 @@ def best_match(drivers: List[DriverRoute], walker: WalkerRoute, min_saving_m: fl
     return best
 
 
+def write_routes_json(sim: MatchSimulation, filename="routes.json"):
+    m = sim.match
+    data_json = {
+        "driver_route": {
+            "geometry_latlon": sim.driver_agent.route.geometry_latlon,
+            "duration_s": sim.driver_agent.route.duration,
+            "cum_time_s": sim.driver_agent.route.cum_time_s,
+        },
+        "walk_to_pickup": {
+            "geometry_latlon": m.walk_route_to_pickup.geometry_latlon,
+            "duration_s": m.walk_route_to_pickup.duration,
+            "cum_time_s": m.walk_route_to_pickup.cum_time_s,
+        },
+        "walk_from_dropoff": {
+            "geometry_latlon": m.walk_route_from_dropoff.geometry_latlon,
+            "duration_s": m.walk_route_from_dropoff.duration,
+            "cum_time_s": m.walk_route_from_dropoff.cum_time_s,
+        },
+        "points": {
+            "walker_start": m.walk_route_to_pickup.start,
+            "pickup": m.pickup,
+            "dropoff": m.dropoff,
+            "walker_dest": m.walk_route_from_dropoff.dest,
+        }
+    }
+
+    write_positions_json(data_json, filename=filename)
+
+
+
 # -------------------------
 # demo / map (OBSOLET)
 # -------------------------
@@ -371,10 +401,6 @@ walker_agent = AgentState(
 drivers, driver_agents = create_drivers(start, end, radius_m=500, count=10)
 match = best_match(drivers, walker, min_saving_m=800)
 
-print("walk dist m:", walker.dist, "walk dur s:", walker.duration, "m/s:", walker.dist / walker.duration)
-wr = fetch_route(walker_start, walker_end, "walking")
-dr = fetch_route(walker_start, walker_end, "driving")
-print("walk:", wr["total_time"], "drive:", dr["total_time"])
 
 
 if match is None:
@@ -403,7 +429,6 @@ if best_driver_agent is None:
 
 
 start_server(8000)
-webbrowser.open("http://127.0.0.1:8000/map.html")
 
 sim = MatchSimulation(
     match=match,
@@ -418,9 +443,33 @@ sim = MatchSimulation(
     ),
 )
 
+# 1) write routes once
+write_routes_json(sim)
+
+# 2) write positions once (initial snapshot)
+sim.update(0.0)
+walker_pos = sim.get_walker_pos()
+driver_positions = [a.get_pos() for a in driver_agents]
+
+data0 = {
+    "t_s": 0.0,
+    "phase": sim.phase.name,
+    "walker": {"lat": walker_pos[0], "lon": walker_pos[1]},
+    "driver": {"lat": sim.get_driver_pos()[0], "lon": sim.get_driver_pos()[1]},
+    "drivers": [{"lat": p[0], "lon": p[1]} for p in driver_positions],
+    "meta": {
+        "t_driver_pickup": sim.match.driver_pickup_eta_s,
+        "t_driver_dropoff": sim.match.driver_dropoff_eta_s,
+    }
+}
+write_positions_json(data0)
+
+# 3) open browser once (optional cache buster)
+webbrowser.open("http://127.0.0.1:8000/map.html?v=" + str(time.time()))
+
+# 4) main loop
 t = 0.0
 dt = 0.2
-
 while True:
     for a in driver_agents:
         if a is best_driver_agent:
@@ -434,11 +483,17 @@ while True:
 
     data = {
         "t_s": t,
+        "phase": sim.phase.name,
         "walker": {"lat": walker_pos[0], "lon": walker_pos[1]},
+        "driver": {"lat": sim.get_driver_pos()[0], "lon": sim.get_driver_pos()[1]},
         "drivers": [{"lat": p[0], "lon": p[1]} for p in driver_positions],
+        "meta": {
+            "t_driver_pickup": sim.match.driver_pickup_eta_s,
+            "t_driver_dropoff": sim.match.driver_dropoff_eta_s,
+        }
     }
 
     write_positions_json(data)
-
     time.sleep(dt)
     t += dt
+
