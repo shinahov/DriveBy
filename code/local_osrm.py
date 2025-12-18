@@ -190,9 +190,48 @@ def create_drivers(start: LatLon,
         driver_agents.append(
             AgentState(
                 route=driver,
-                pos=driver.start
+                pos=driver.start,
+                start_offset_s=0.0
             ))
     return drivers, driver_agents
+
+def create_walkers(center_start: LatLon,
+                   center_dest: LatLon,
+                   radius_m: float,
+                   count: int) -> Tuple[List[WalkerRoute], List[AgentState]]:
+    walkers: List[WalkerRoute] = []
+    walker_agents: List[AgentState] = []
+
+    for _ in range(count):
+        s = random_offset(center_start, radius_m)
+        e = random_offset(center_dest, radius_m)
+
+        r = fetch_route(s, e, "walking")
+        w = WalkerRoute(
+            start=s,
+            dest=e,
+            dist=r["total_dist"],
+            duration=r["total_time"],
+            duration_list=r["seg_time"],
+            cum_time_s=r["cum_time"],
+            profile="walking",
+            geometry_latlon=r["geometry"],
+            seg_dist_m=r["seg_dist"],
+            cum_dist_m=r["cum_dist"],
+            nodes=r["nodes"],
+        )
+
+        walkers.append(w)
+        walker_agents.append(
+            AgentState(
+                route=w,
+                pos=w.start,
+                start_offset_s=0.0
+            )
+        )
+
+    return walkers, walker_agents
+
 
 
 # -------------------------
@@ -387,26 +426,11 @@ def start():
     walker_end = (51.219105, 6.787711)
 
     # walker route once
-    wr = fetch_route(walker_start, walker_end, "walking")
-    walker = WalkerRoute(
-        start=walker_start,
-        dest=walker_end,
-        dist=wr["total_dist"],
-        duration=wr["total_time"],
-        duration_list=wr["seg_time"],
-        cum_time_s=wr["cum_time"],
-        profile="walking",
-        geometry_latlon=wr["geometry"],
-        seg_dist_m=wr["seg_dist"],
-        cum_dist_m=wr["cum_dist"],
-        nodes=wr["nodes"],
-    )
-    walker_agent = AgentState(
-        route=walker,
-        pos=walker.start
-    )
+    walker_list, walker_agent_list = create_walkers(walker_start, walker_end, 300, 1)
+    walker = walker_list[0]
+    walker_agent = walker_agent_list[0]
 
-    drivers, driver_agents = create_drivers(start, end, radius_m=500, count=10)
+    drivers, driver_agents = create_drivers(start, end, radius_m=1000, count=10)
     match = best_match(drivers, walker, min_saving_m=800)
 
     if match is None:
