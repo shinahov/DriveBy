@@ -14,6 +14,7 @@ class AgentState:
     idx: int = 0
     pos: Optional[LatLon] = None
     done: bool = False
+    assigned: bool = False
 
     def update_position(self, global_time: float) -> None:
         if self.done:

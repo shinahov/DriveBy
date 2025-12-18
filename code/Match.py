@@ -1,11 +1,11 @@
 from dataclasses import dataclass
-from RouteBase import LatLon, DriverRoute, WalkerRoute
+from RouteBase import LatLon, DriverRoute, WalkerRoute, RouteBase
 
 
 @dataclass
 class Match:
-    driver: DriverRoute
-    walker: WalkerRoute
+    driver: RouteBase
+    walker: RouteBase
     walk_route_to_pickup: WalkerRoute  # walker_start -> pickup
     walk_route_from_dropoff: WalkerRoute  # dropoff -> walker_dest
 

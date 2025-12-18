@@ -7,7 +7,10 @@ LatLon = Tuple[float, float]
 @dataclass(frozen=True)
 class RouteBase:
     geometry_latlon: List[LatLon]
+    dist: float
     duration: float
+    start: LatLon
+    dest: LatLon
     duration_list: List[float]
     cum_time_s: List[float]
     seg_dist_m: List[float]
@@ -40,17 +43,17 @@ class RouteBase:
 
 @dataclass(frozen=True)
 class DriverRoute(RouteBase):
-    start: LatLon
-    dest: LatLon
-    dist: float
-    profile: str
+    #start: LatLon
+    #dest: LatLon
+    #dist: float
+    profile: str = "walking"
     nodes: Optional[List[int]] = None
 
 
 @dataclass(frozen=True)
 class WalkerRoute(RouteBase):
-    start: LatLon
-    dest: LatLon
-    dist: float
-    profile: str
+    #start: LatLon
+    #dest: LatLon
+    #dist: float
+    profile: str = "driving"
     nodes: Optional[List[int]] = None

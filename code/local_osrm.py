@@ -8,14 +8,14 @@ import webbrowser
 from typing import List, Tuple, Optional, Dict, Any
 from functools import lru_cache
 
-from RouteBase import LatLon, DriverRoute, WalkerRoute
+from RouteBase import LatLon, DriverRoute, WalkerRoute, RouteBase
 from Match import Match
 from AgentState import AgentState
 from MatchSimulation import MatchSimulation
 from realtime_runner import *
 
 OSRM_DRIVE = "http://localhost:5000"
-OSRM_WALK  = "http://localhost:5001"
+OSRM_WALK = "http://localhost:5001"
 
 
 # -------------------------
@@ -133,9 +133,9 @@ def fetch_route(start: LatLon, dest: LatLon, profile: str):
 
 @lru_cache(maxsize=50_000)
 def route_cached(
-    a_lat: float, a_lon: float,
-    b_lat: float, b_lon: float,
-    profile: str
+        a_lat: float, a_lon: float,
+        b_lat: float, b_lon: float,
+        profile: str
 ) -> Dict[str, Any]:
     # cache key is primitive floats + profile
     return fetch_route((a_lat, a_lon), (b_lat, b_lon), profile)
@@ -165,25 +165,25 @@ def create_drivers(start: LatLon,
                    radius_m: float,
                    count: int) -> Tuple[List[DriverRoute], List[AgentState]]:
     drivers = []
-    driver_agents= []
+    driver_agents = []
     for _ in range(count):
         s = random_offset(start, radius_m)
         e = random_offset(dest, radius_m)
 
         r = fetch_route(s, e, "driving")
         driver = DriverRoute(
-                start=s,
-                dest=e,
-                dist=r["total_dist"],
-                duration=r["total_time"],
-                duration_list=r["seg_time"],
-                cum_time_s=r["cum_time"],
-                profile="driving",
-                geometry_latlon=r["geometry"],
-                seg_dist_m=r["seg_dist"],
-                cum_dist_m=r["cum_dist"],
-                nodes=r["nodes"],
-            )
+            start=s,
+            dest=e,
+            dist=r["total_dist"],
+            duration=r["total_time"],
+            duration_list=r["seg_time"],
+            cum_time_s=r["cum_time"],
+            profile="driving",
+            geometry_latlon=r["geometry"],
+            seg_dist_m=r["seg_dist"],
+            cum_dist_m=r["cum_dist"],
+            nodes=r["nodes"],
+        )
         drivers.append(
             driver
         )
@@ -194,6 +194,7 @@ def create_drivers(start: LatLon,
                 start_offset_s=0.0
             ))
     return drivers, driver_agents
+
 
 def create_walkers(center_start: LatLon,
                    center_dest: LatLon,
@@ -233,13 +234,12 @@ def create_walkers(center_start: LatLon,
     return walkers, walker_agents
 
 
-
 # -------------------------
 # pickup / dropoff selection
 # -------------------------
-def find_pickup(driver: DriverRoute,
-                walker: WalkerRoute,
-                k: int = 15) ->  Tuple[LatLon, float, float, int]:
+def find_pickup(driver: RouteBase,
+                walker: RouteBase,
+                k: int = 15) -> Tuple[LatLon, float, float, int]:
     pts = driver.geometry_latlon
     cand_idx = topk_by_haversine(pts, walker.start, k)
 
@@ -262,9 +262,9 @@ def find_dropoff(driver: DriverRoute,
                  walker: WalkerRoute,
                  pickup: LatLon,
                  pickup_i: int,
-                 k: int = 10) ->  Tuple[LatLon, float, float, int]:
+                 k: int = 10) -> Tuple[LatLon, float, float, int]:
     pts = driver.geometry_latlon
-    tail = pts[pickup_i + 1 :]
+    tail = pts[pickup_i + 1:]
     if not tail:
         raise RuntimeError("Pickup is at/near end of driver route")
 
@@ -286,7 +286,7 @@ def find_dropoff(driver: DriverRoute,
     return pts[best_i], best_m, best_s, best_i
 
 
-def build_match(driver: DriverRoute, walker: WalkerRoute) -> Match:
+def build_match(driver: RouteBase, walker: RouteBase) -> Match:
     pickup, pick_m, pick_s, pi = find_pickup(driver, walker)
     dropoff, drop_m, drop_s, di = find_dropoff(driver, walker, pickup, pi)
     if di <= pi:
@@ -357,34 +357,59 @@ def best_match(drivers: List[DriverRoute], walker: WalkerRoute, min_saving_m: fl
     return best
 
 
-def write_routes_json(sim: MatchSimulation, filename="routes.json"):
-    m = sim.match
-    data_json = {
-        "driver_route": {
-            "geometry_latlon": sim.driver_agent.route.geometry_latlon,
-            "duration_s": sim.driver_agent.route.duration,
-            "cum_time_s": sim.driver_agent.route.cum_time_s,
-        },
-        "walk_to_pickup": {
-            "geometry_latlon": m.walk_route_to_pickup.geometry_latlon,
-            "duration_s": m.walk_route_to_pickup.duration,
-            "cum_time_s": m.walk_route_to_pickup.cum_time_s,
-        },
-        "walk_from_dropoff": {
-            "geometry_latlon": m.walk_route_from_dropoff.geometry_latlon,
-            "duration_s": m.walk_route_from_dropoff.duration,
-            "cum_time_s": m.walk_route_from_dropoff.cum_time_s,
-        },
-        "points": {
-            "walker_start": m.walk_route_to_pickup.start,
-            "pickup": m.pickup,
-            "dropoff": m.dropoff,
-            "walker_dest": m.walk_route_from_dropoff.dest,
-        }
-    }
+def best_match_(drivers: List[AgentState], walker: AgentState, min_saving_m: float = 800.0) \
+        -> Tuple[Optional[Match], Optional[AgentState]]:
+    best: Optional[Match] = None
+    driver: Optional[AgentState] = None
+    best_total_walk = float("inf")
+    best_arrival = float("inf")
 
-    write_positions_json(data_json, filename=filename)
+    for d_agent in drivers:
+        try:
+            m = build_match(d_agent.route, walker.route)
+            if not valid_match(m, min_saving_m=min_saving_m):
+                continue
+            arrival_time = m.driver_dropoff_eta_s + m.drop_walk_duration_seconds
+            if arrival_time < best_arrival:
+                best_arrival = arrival_time
+                best = m
+                driver = d_agent
+        except RuntimeError:
+            continue
 
+    return best, driver
+
+
+def write_routes_json(sims: List[MatchSimulation], filename="routes.json"):
+    routes = []
+
+    for sim in sims:
+        m = sim.match
+        routes.append({
+            "driver_route": {
+                "geometry_latlon": sim.driver_agent.route.geometry_latlon,
+                "duration_s": sim.driver_agent.route.duration,
+                "cum_time_s": sim.driver_agent.route.cum_time_s,
+            },
+            "walk_to_pickup": {
+                "geometry_latlon": m.walk_route_to_pickup.geometry_latlon,
+                "duration_s": m.walk_route_to_pickup.duration,
+                "cum_time_s": m.walk_route_to_pickup.cum_time_s,
+            },
+            "walk_from_dropoff": {
+                "geometry_latlon": m.walk_route_from_dropoff.geometry_latlon,
+                "duration_s": m.walk_route_from_dropoff.duration,
+                "cum_time_s": m.walk_route_from_dropoff.cum_time_s,
+            },
+            "points": {
+                "walker_start": m.walk_route_to_pickup.start,
+                "pickup": m.pickup,
+                "dropoff": m.dropoff,
+                "walker_dest": m.walk_route_from_dropoff.dest,
+            }
+        })
+
+    write_positions_json(routes, filename=filename)
 
 
 # -------------------------
@@ -401,10 +426,13 @@ def draw_map(drivers: List[DriverRoute], match: Optional[Match], walker: WalkerR
         folium.PolyLine(d.geometry_latlon, color="red", weight=3, opacity=1, tooltip=f"Driver {i} Route").add_to(m)
 
     if match is not None:
-        folium.PolyLine(match.driver.geometry_latlon, color="blue", weight=5, opacity=0.8, tooltip="Best Driver Route").add_to(m)
+        folium.PolyLine(match.driver.geometry_latlon, color="blue", weight=5, opacity=0.8,
+                        tooltip="Best Driver Route").add_to(m)
 
-        folium.Marker(match.pickup, tooltip=f"Pickup (walk {match.pick_walk_dist_meters:.0f} m)", icon=folium.Icon(color="purple")).add_to(m)
-        folium.Marker(match.dropoff, tooltip=f"Dropoff (walk {match.drop_walk_dist_meters:.0f} m)", icon=folium.Icon(color="black")).add_to(m)
+        folium.Marker(match.pickup, tooltip=f"Pickup (walk {match.pick_walk_dist_meters:.0f} m)",
+                      icon=folium.Icon(color="purple")).add_to(m)
+        folium.Marker(match.dropoff, tooltip=f"Dropoff (walk {match.drop_walk_dist_meters:.0f} m)",
+                      icon=folium.Icon(color="black")).add_to(m)
 
         # walking lines for visualization (use cached routes)
         wtp = route_cached(walker.start[0], walker.start[1], match.pickup[0], match.pickup[1], "walking")["geometry"]
@@ -419,6 +447,58 @@ def draw_map(drivers: List[DriverRoute], match: Optional[Match], walker: WalkerR
 # -------------------------
 # run
 # -------------------------
+def create_agent(route: RouteBase) -> AgentState:
+    return AgentState(
+        route=route
+    )
+
+
+def create_matches(driver_agent_list,
+                   walker_agent_list,
+                   min_saving_m=800) -> Tuple[List[MatchSimulation], List[AgentState], List[AgentState]]:
+    match_simulation_list = []
+    for walker_agent in walker_agent_list:
+        match, driver_agent = best_match_(driver_agent_list, walker_agent, min_saving_m)
+        if match is not None:
+            driver_agent.assigned = True
+            walker_agent.assigned = True
+            driver_agent_list.remove(driver_agent)
+            walker_agent_list.remove(walker_agent)
+
+            match_sim = MatchSimulation(
+                match=match,
+                driver_agent=driver_agent,
+                walk_to_pickup_agent=create_agent(match.walk_route_to_pickup),
+                walk_from_dropoff_agent=create_agent(match.walk_route_from_dropoff)
+            )
+            match_simulation_list.append(match_sim)
+    return match_simulation_list, driver_agent_list, walker_agent_list
+
+
+def snapshot_all(t_s: float, sims: list):
+    frames = []
+
+    for i, sim in enumerate(sims):
+        walker_pos = sim.get_walker_pos()
+        driver_pos = sim.get_driver_pos()
+
+        frames.append({
+            "sim_id": i,
+            "phase": sim.phase.name,
+            "walker": {"lat": walker_pos[0], "lon": walker_pos[1]},
+            "driver": {"lat": driver_pos[0], "lon": driver_pos[1]},
+            "meta": {
+                "t_driver_pickup": sim.match.driver_pickup_eta_s,
+                "t_driver_dropoff": sim.match.driver_dropoff_eta_s,
+            }
+        })
+
+    return {
+        "t_s": t_s,
+        "sims": frames
+    }
+
+
 def start():
     start = (51.2562, 7.1508)
     end = (51.2277, 6.7735)
@@ -426,70 +506,47 @@ def start():
     walker_end = (51.219105, 6.787711)
 
     # walker route once
-    walker_list, walker_agent_list = create_walkers(walker_start, walker_end, 300, 1)
+    walker_list, walker_agent_list = create_walkers(walker_start, walker_end, 300, 10)
     walker = walker_list[0]
     walker_agent = walker_agent_list[0]
 
-    drivers, driver_agents = create_drivers(start, end, radius_m=1000, count=10)
+    drivers, driver_agent_list = create_drivers(start, end, radius_m=1000, count=10)
+
+    matches_sim_list, driver_agent_list, walker_agent_list = create_matches(driver_agent_list, walker_agent_list,
+                                                                            min_saving_m=800)
     match = best_match(drivers, walker, min_saving_m=800)
 
-    if match is None:
+    if matches_sim_list is None:
         print("no match")
         raise SystemExit(0)
-    else:
-        print("saving_m:", match.saving_dist_meters, "ride_m:", match.ride_dist_meters, "walk_m:",
-              match.total_walk_dist_meters)
+    print(len(matches_sim_list))
 
     # draw_map(drivers, match, walker, center=start)
 
-    all_agents: list[tuple[str, AgentState]] = []
+    all_left_driver_agents: list[tuple[str, AgentState]] = []
+    all_left_walker_agents: list[tuple[str, AgentState]] = []
 
-    for i, a in enumerate(driver_agents):
-        all_agents.append((f"Driver {i}", a))
-
-    best_driver_agent = None
-    for agent in driver_agents:
-        if agent.route is match.driver:
-            best_driver_agent = agent
-            break
-
-    if best_driver_agent is None:
-        raise RuntimeError("Matched driver agent not found")
+    for i, a in enumerate(driver_agent_list):
+        all_left_driver_agents.append((f"Driver {i}", a))
+    for i, a in enumerate(walker_agent_list):
+        all_left_walker_agents.append((f"walker {i}", a))
 
     start_server(8000)
 
-    sim = MatchSimulation(
-        match=match,
-        driver_agent=best_driver_agent,
-        walk_to_pickup_agent=AgentState(
-            route=match.walk_route_to_pickup,
-            pos=match.walk_route_to_pickup.start
-        ),
-        walk_from_dropoff_agent=AgentState(
-            route=match.walk_route_from_dropoff,
-            pos=match.walk_route_from_dropoff.start
-        ),
-    )
-
     # 1) write routes once
-    write_routes_json(sim)
+    write_routes_json(matches_sim_list)
 
     # 2) write positions once (initial snapshot)
-    sim.update(0.0)
-    walker_pos = sim.get_walker_pos()
-    driver_positions = [a.get_pos() for a in driver_agents]
+    for sim in matches_sim_list:
+        sim.update(0.0)
 
-    data0 = {
-        "t_s": 0.0,
-        "phase": sim.phase.name,
-        "walker": {"lat": walker_pos[0], "lon": walker_pos[1]},
-        "driver": {"lat": sim.get_driver_pos()[0], "lon": sim.get_driver_pos()[1]},
-        "drivers": [{"lat": p[0], "lon": p[1]} for p in driver_positions],
-        "meta": {
-            "t_driver_pickup": sim.match.driver_pickup_eta_s,
-            "t_driver_dropoff": sim.match.driver_dropoff_eta_s,
-        }
-    }
+    data0 = snapshot_all(0.0, matches_sim_list)
+    data0["leftover_drivers"] = \
+        [{"lat": a.get_pos()[0],
+          "lon": a.get_pos()[1]} for a in driver_agent_list]
+    data0["leftover_walkers"] = \
+        [{"lat": a.get_pos()[0],
+          "lon": a.get_pos()[1]} for a in walker_agent_list]
     write_positions_json(data0)
 
     # 3) open browser once (optional cache buster)
@@ -499,30 +556,27 @@ def start():
     t = 0.0
     dt = 0.2
     while True:
-        for a in driver_agents:
-            if a is best_driver_agent:
-                continue
+        # update all leftover drivers (unmatched) if you want them visible
+        for a in driver_agent_list:
             a.update_position(t)
 
-        sim.update(t)
+        # update all match sims
+        for sim in matches_sim_list:
+            sim.update(t)
 
-        walker_pos = sim.get_walker_pos()
-        driver_positions = [a.get_pos() for a in driver_agents]
+        # ONE snapshot for ALL
+        data = snapshot_all(t, matches_sim_list)
 
-        data = {
-            "t_s": t,
-            "phase": sim.phase.name,
-            "walker": {"lat": walker_pos[0], "lon": walker_pos[1]},
-            "driver": {"lat": sim.get_driver_pos()[0], "lon": sim.get_driver_pos()[1]},
-            "drivers": [{"lat": p[0], "lon": p[1]} for p in driver_positions],
-            "meta": {
-                "t_driver_pickup": sim.match.driver_pickup_eta_s,
-                "t_driver_dropoff": sim.match.driver_dropoff_eta_s,
-            }
-        }
+        # optional: also include unmatched drivers/walkers as extra lists
+        data["leftover_drivers"] = \
+            [{"lat": a.get_pos()[0],
+              "lon": a.get_pos()[1]} for a in driver_agent_list]
+        data["leftover_walkers"] = \
+            [{"lat": a.get_pos()[0],
+              "lon": a.get_pos()[1]} for a in walker_agent_list]
 
         write_positions_json(data)
-        # time.sleep(dt)
+
         dt = MyHandler.speed
         t += dt
 
