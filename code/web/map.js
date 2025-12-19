@@ -1,9 +1,23 @@
-// ---------- Map setup ----------
-const map = L.map("map").setView([51.2562, 7.1508], 12);
+// map.js (multi-simulation version)
+//alert("map.js loaded");
+
+// map setup
+const map = L.map("map");
+
+requestAnimationFrame(() => {
+    map.setView([51.2562, 7.1508], 12);
+    map.invalidateSize(true);
+});
+
+
+map.whenReady(() => {
+    map.invalidateSize(true);
+});
+
 
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: "&copy; OpenStreetMap contributors"
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors"
 }).addTo(map);
 
 const infoEl = document.getElementById("info");
@@ -11,236 +25,272 @@ const infoEl = document.getElementById("info");
 // ---------- State ----------
 let routesLoaded = false;
 
-// Driver route split into 3 segments
-let lineDriverPre = null;     // start -> pickup (gray)
-let lineDriverRide = null;    // pickup -> dropoff (red)
-let lineDriverPost = null;    // dropoff -> end (gray)
+// Per-simulation layers
+// simLayers[i] = { markers:{walker,driver}, lines:{pre,ride,post,w1,w2,pickup,dropoff} }
+let simLayers = [];
 
-let lineWalkToPickup = null;      // green dashed
-let lineWalkFromDropoff = null;   // green dashed
+// Leftover agents markers
+let leftoverDriverMarkers = [];
+let leftoverWalkerMarkers = [];
 
-let pickupMarker = null;
-let dropoffMarker = null;
-
-// ---------- Marker styles ----------
-function createWalkerTriangleMarker(latlng) {
-  // Orange triangle, no external image
-  const html = `
-    <svg width="22" height="22" viewBox="0 0 22 22">
-      <polygon points="11,2 20,20 2,20"
-        fill="#f59e0b" stroke="#ffffff" stroke-width="2"/>
-    </svg>
-  `;
-  return L.marker(latlng, {
-    icon: L.divIcon({
-      className: "",
-      html,
-      iconSize: [22, 22],
-      iconAnchor: [11, 11]
-    })
-  });
-}
-
-function createPulsingMainDriverMarker(latlng) {
-  return L.marker(latlng, {
-    icon: L.divIcon({
-      className: "",
-      html: `<div class="pulse-black"></div>`,
-      iconSize: [18, 18],
-      iconAnchor: [9, 9]
-    })
-  });
-}
-
-const walkerMarker = createWalkerTriangleMarker([0, 0]).addTo(map);
-const bestDriverMarker = createPulsingMainDriverMarker([0, 0]).addTo(map);
-
-// Other drivers remain circles
-const otherDriverMarkers = [];
-
-function ensureOtherDriverMarkers(n) {
-  while (otherDriverMarkers.length < n) {
-    const idx = otherDriverMarkers.length;
-
-    const m = L.circleMarker([0, 0], {
-      radius: 5,
-      color: "#6b7280",
-      fillColor: "#9ca3af",
-      fillOpacity: 1,
-      weight: 1
-    }).addTo(map);
-
-    m.bindTooltip("Driver " + idx);
-    otherDriverMarkers.push(m);
-  }
-
-  while (otherDriverMarkers.length > n) {
-    const m = otherDriverMarkers.pop();
-    map.removeLayer(m);
-  }
-}
-
-// ---------- Helpers ----------
+// helpers
 async function fetchJsonNoCache(url) {
-  const res = await fetch(url + "?ts=" + Date.now());
-  if (!res.ok) throw new Error("HTTP " + res.status + " for " + url);
-  return await res.json();
-}
-
-function dist2(a, b) {
-  const dLat = a[0] - b[0];
-  const dLon = a[1] - b[1];
-  return dLat * dLat + dLon * dLon;
-}
-
-function closestIndex(points, target) {
-  let bestI = 0;
-  let bestD = Infinity;
-  for (let i = 0; i < points.length; i++) {
-    const d = dist2(points[i], target);
-    if (d < bestD) {
-      bestD = d;
-      bestI = i;
-    }
-  }
-  return bestI;
+    const res = await fetch(url + "?ts=" + Date.now(), {cache: "no-store"});
+    if (!res.ok) throw new Error("HTTP " + res.status + " for " + url);
+    return await res.json();
 }
 
 function sliceInclusive(points, a, b) {
-  // inclusive slice [a..b]
-  return points.slice(a, b + 1);
+    if (a < 0) a = 0;
+    if (b >= points.length) b = points.length - 1;
+    if (b < a) return [];
+    return points.slice(a, b + 1);
 }
 
-// ---------- Routes (load until available) ----------
+// Markers
+function createWalkerTriangleMarker(latlng) {
+    const html = `
+    <svg width="22" height="22" viewBox="0 0 22 22">
+      <polygon points="11,2 20,20 2,20" fill="#f59e0b" stroke="#ffffff" stroke-width="2"/>
+    </svg>
+  `;
+    return L.marker(latlng, {
+        icon: L.divIcon({
+            className: "",
+            html,
+            iconSize: [22, 22],
+            iconAnchor: [11, 11]
+        })
+    });
+}
+
+function createPulsingDriverMarker(latlng) {
+    return L.marker(latlng, {
+        icon: L.divIcon({
+            className: "",
+            html: `<div class="pulse-black"></div>`,
+            iconSize: [18, 18],
+            iconAnchor: [9, 9]
+        })
+    });
+}
+
+function ensureSimLayers(n) {
+    while (simLayers.length < n) {
+        const idx = simLayers.length;
+
+        const walker = createWalkerTriangleMarker([0, 0]).addTo(map);
+        walker.bindTooltip("Walker sim " + idx);
+
+        const driver = createPulsingDriverMarker([0, 0]).addTo(map);
+        driver.bindTooltip("Driver sim " + idx);
+
+        simLayers.push({
+            markers: {walker, driver},
+            lines: {
+                pre: null, ride: null, post: null,
+                w1: null, w2: null,
+                pickup: null, dropoff: null
+            }
+        });
+    }
+
+    while (simLayers.length > n) {
+        const s = simLayers.pop();
+        map.removeLayer(s.markers.walker);
+        map.removeLayer(s.markers.driver);
+        Object.values(s.lines).forEach(layer => {
+            if (layer) map.removeLayer(layer);
+        });
+    }
+}
+
+function ensureCircleMarkers(arr, n, tooltipPrefix) {
+    while (arr.length < n) {
+        const idx = arr.length;
+        const m = L.circleMarker([0, 0], {
+            radius: 5,
+            color: "#6b7280",
+            fillColor: "#9ca3af",
+            fillOpacity: 1,
+            weight: 1
+        }).addTo(map);
+        m.bindTooltip(tooltipPrefix + " " + idx);
+        arr.push(m);
+    }
+
+    while (arr.length > n) {
+        map.removeLayer(arr.pop());
+    }
+}
+
+function clearSimLines(sim) {
+    Object.keys(sim.lines).forEach(k => {
+        const layer = sim.lines[k];
+        if (layer) {
+            map.removeLayer(layer);
+            sim.lines[k] = null;
+        }
+    });
+}
+
+// ---------- Routes (load once) ----------
 async function tryLoadRoutes() {
-  if (routesLoaded) return;
+    if (routesLoaded) return;
 
-  try {
-    const data = await fetchJsonNoCache("routes.json");
+    try {
+        const data = await fetchJsonNoCache("routes.json");
+        const routes = Array.isArray(data.routes) ? data.routes : [];
 
-    const d  = data.driver_route.geometry_latlon;     // [[lat, lon], ...]
-    const w1 = data.walk_to_pickup.geometry_latlon;
-    const w2 = data.walk_from_dropoff.geometry_latlon;
+        ensureSimLayers(routes.length);
 
-    const pts = data.points;
-    const pickup = pts.pickup;     // [lat, lon]
-    const dropoff = pts.dropoff;   // [lat, lon]
+        let allPts = [];
+        if (allPts.length > 0) {
+            map.fitBounds(allPts, {padding: [50, 50]});
+        }
 
-    // Find closest indices on driver route for pickup/dropoff
-    const iPick = closestIndex(d, pickup);
-    const iDrop = closestIndex(d, dropoff);
-    const a = Math.min(iPick, iDrop);
-    const b = Math.max(iPick, iDrop);
 
-    // Split driver route into 3 segments
-    const segPre  = sliceInclusive(d, 0, a);
-    const segRide = sliceInclusive(d, a, b);
-    const segPost = sliceInclusive(d, b, d.length - 1);
+        for (let i = 0; i < routes.length; i++) {
+            const r = routes[i];
+            const d = r.driver_route?.geometry_latlon;
+            const w1 = r.walk_to_pickup?.geometry_latlon;
+            const w2 = r.walk_from_dropoff?.geometry_latlon;
+            const pickup = r.points?.pickup;
+            const dropoff = r.points?.dropoff;
 
-    // Driver segments
-    lineDriverPre = L.polyline(segPre, {
-      color: "#9ca3af",
-      weight: 6,
-      opacity: 0.9
-    }).addTo(map);
+            if (!Array.isArray(d) || !Array.isArray(w1) || !Array.isArray(w2) || !pickup || !dropoff) {
+                continue;
+            }
 
-    lineDriverRide = L.polyline(segRide, {
-      color: "#dc2626",
-      weight: 7,
-      opacity: 0.95
-    }).addTo(map);
+            const s = simLayers[i];
+            clearSimLines(s);
 
-    lineDriverPost = L.polyline(segPost, {
-      color: "#9ca3af",
-      weight: 6,
-      opacity: 0.9
-    }).addTo(map);
+            const iPick = r.idx?.pickup;
+            const iDrop = r.idx?.dropoff;
+            if (!Number.isInteger(iPick) || !Number.isInteger(iDrop)) continue;
+            const a = Math.min(iPick, iDrop);
+            const b = Math.max(iPick, iDrop);
 
-    // Walking routes (keep green dashed)
-    lineWalkToPickup = L.polyline(w1, {
-      color: "#16a34a",
-      weight: 5,
-      opacity: 0.9
-    }).addTo(map);
+            const segPre = sliceInclusive(d, 0, a);
+            const segRide = sliceInclusive(d, a, b);
+            const segPost = sliceInclusive(d, b, d.length - 1);
 
-    lineWalkFromDropoff = L.polyline(w2, {
-      color: "#16a34a",
-      weight: 5,
-      opacity: 0.9
-    }).addTo(map);
+            s.lines.pre = L.polyline(segPre, {
+                color: "#9ca3af",
+                weight: 5,
+                opacity: 0.8
+            }).addTo(map).bindTooltip("Driver pre sim " + i);
 
-    // Pickup / dropoff markers (make them nicer)
-    pickupMarker = L.circleMarker(pickup, {
-      radius: 9,
-      color: "#7c3aed",
-      fillColor: "#a78bfa",
-      fillOpacity: 1,
-      weight: 2
-    }).addTo(map).bindTooltip("Pickup");
+            s.lines.ride = L.polyline(segRide, {
+                color: "#dc2626",
+                weight: 6,
+                opacity: 0.9
+            }).addTo(map).bindTooltip("Driver ride sim " + i);
 
-    dropoffMarker = L.circleMarker(dropoff, {
-      radius: 9,
-      color: "#7c3aed",
-      fillColor: "#374151",
-      fillOpacity: 1,
-      weight: 2
-    }).addTo(map).bindTooltip("Dropoff");
+            s.lines.post = L.polyline(segPost, {
+                color: "#9ca3af",
+                weight: 5,
+                opacity: 0.8
+            }).addTo(map).bindTooltip("Driver post sim " + i);
 
-    // Fit map to all visible route points
-    const allPts = d.concat(w1).concat(w2);
-    map.fitBounds(allPts, { padding: [30, 30] });
+            s.lines.w1 = L.polyline(w1, {
+                color: "#16a34a",
+                weight: 4,
+                opacity: 0.85,
+                dashArray: "6"
+            }).addTo(map).bindTooltip("Walk to pickup sim " + i);
 
-    routesLoaded = true;
-    infoEl.textContent = "Routes loaded.\nWaiting for positions.json ...";
-  } catch (e) {
-    infoEl.textContent = "Waiting for routes.json ...";
-  }
+            s.lines.w2 = L.polyline(w2, {
+                color: "#16a34a",
+                weight: 4,
+                opacity: 0.85,
+                dashArray: "6"
+            }).addTo(map).bindTooltip("Walk from dropoff sim " + i);
+
+            s.lines.pickup = L.circleMarker(pickup, {
+                radius: 7,
+                color: "#7c3aed",
+                fillColor: "#a78bfa",
+                fillOpacity: 1,
+                weight: 2
+            }).addTo(map).bindTooltip("Pickup sim " + i);
+
+            s.lines.dropoff = L.circleMarker(dropoff, {
+                radius: 7,
+                color: "#7c3aed",
+                fillColor: "#374151",
+                fillOpacity: 1,
+                weight: 2
+            }).addTo(map).bindTooltip("Dropoff sim " + i);
+
+            allPts = allPts.concat(d, w1, w2);
+        }
+
+        if (allPts.length > 0) {
+            map.fitBounds(allPts, {padding: [30, 30]});
+        }
+
+        routesLoaded = true;
+        infoEl.textContent = "Routes loaded.\nWaiting for positions.json ...";
+    } catch (e) {
+        infoEl.textContent = "Waiting for routes.json ...";
+    }
 }
 
-// ---------- Positions (continuous updates) ----------
+// ---------- Positions (continuous) ----------
 async function updatePositions() {
-  try {
-    const data = await fetchJsonNoCache("positions.json");
+    try {
+        const data = await fetchJsonNoCache("positions.json");
+        const sims = Array.isArray(data.sims) ? data.sims : [];
 
-    // Walker triangle position
-    if (data.walker) {
-      walkerMarker.setLatLng([data.walker.lat, data.walker.lon]);
+        ensureSimLayers(sims.length);
+
+        for (let i = 0; i < sims.length; i++) {
+            const s = sims[i];
+            const layer = simLayers[i];
+
+            if (s.walker) {
+                layer.markers.walker.setLatLng([s.walker.lat, s.walker.lon]);
+            }
+            if (s.driver) {
+                layer.markers.driver.setLatLng([s.driver.lat, s.driver.lon]);
+            }
+        }
+
+        const lD = Array.isArray(data.leftover_drivers) ? data.leftover_drivers : [];
+        const lW = Array.isArray(data.leftover_walkers) ? data.leftover_walkers : [];
+
+        ensureCircleMarkers(leftoverDriverMarkers, lD.length, "Left driver");
+        ensureCircleMarkers(leftoverWalkerMarkers, lW.length, "Left walker");
+
+        for (let i = 0; i < lD.length; i++) {
+            leftoverDriverMarkers[i].setLatLng([lD[i].lat, lD[i].lon]);
+        }
+        for (let i = 0; i < lW.length; i++) {
+            leftoverWalkerMarkers[i].setLatLng([lW[i].lat, lW[i].lon]);
+        }
+
+        const t = (typeof data.t_s === "number") ? Math.round(data.t_s) : "?";
+
+        infoEl.textContent =
+            "time = " + t + " s\n" +
+            "sims = " + sims.length + "\n" +
+            "left drivers = " + lD.length + "\n" +
+            "left walkers = " + lW.length;
+
+    } catch (e) {
+        infoEl.textContent = routesLoaded
+            ? "Routes loaded.\nWaiting for positions.json ..."
+            : "Waiting for routes.json ...";
     }
-
-    // Main driver (pulsing black)
-    if (data.driver) {
-      bestDriverMarker.setLatLng([data.driver.lat, data.driver.lon]);
-    }
-
-    // Other drivers
-    const drivers = Array.isArray(data.drivers) ? data.drivers : [];
-    ensureOtherDriverMarkers(drivers.length);
-
-    for (let i = 0; i < drivers.length; i++) {
-      otherDriverMarkers[i].setLatLng([drivers[i].lat, drivers[i].lon]);
-    }
-
-    const t = (typeof data.t_s === "number") ? Math.round(data.t_s) : "?";
-    const phase = data.phase ? data.phase : "-";
-
-    infoEl.textContent =
-      "time = " + t + " s\n" +
-      "phase = " + phase + "\n" +
-      "other drivers = " + drivers.length;
-
-  } catch (e) {
-    infoEl.textContent = routesLoaded
-      ? "Routes loaded.\nWaiting for positions.json ..."
-      : "Waiting for routes.json ...";
-  }
 }
 
+// ---------- Controls ----------
 document.getElementById("btn-faster").onclick = () => {
-  fetch("/faster");
+    fetch("/faster");
 };
-
 document.getElementById("btn-slower").onclick = () => {
-  fetch("/slower");
+    fetch("/slower");
 };
 
 // ---------- Scheduling ----------

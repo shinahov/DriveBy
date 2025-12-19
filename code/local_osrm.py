@@ -388,28 +388,23 @@ def write_routes_json(sims: List[MatchSimulation], filename="routes.json"):
         routes.append({
             "driver_route": {
                 "geometry_latlon": sim.driver_agent.route.geometry_latlon,
-                "duration_s": sim.driver_agent.route.duration,
-                "cum_time_s": sim.driver_agent.route.cum_time_s,
             },
             "walk_to_pickup": {
                 "geometry_latlon": m.walk_route_to_pickup.geometry_latlon,
-                "duration_s": m.walk_route_to_pickup.duration,
-                "cum_time_s": m.walk_route_to_pickup.cum_time_s,
             },
             "walk_from_dropoff": {
                 "geometry_latlon": m.walk_route_from_dropoff.geometry_latlon,
-                "duration_s": m.walk_route_from_dropoff.duration,
-                "cum_time_s": m.walk_route_from_dropoff.cum_time_s,
             },
             "points": {
-                "walker_start": m.walk_route_to_pickup.start,
                 "pickup": m.pickup,
                 "dropoff": m.dropoff,
-                "walker_dest": m.walk_route_from_dropoff.dest,
-            }
+            },
+            "idx": {
+                "pickup": m.pickup_index,
+                "dropoff": m.dropoff_index}
         })
 
-    write_positions_json(routes, filename=filename)
+    write_positions_json({"routes": routes}, filename=filename)
 
 
 # -------------------------
@@ -579,4 +574,4 @@ def start():
 
         dt = MyHandler.speed
         t += dt
-
+        time.sleep(0.05)
