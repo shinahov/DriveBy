@@ -358,7 +358,7 @@ def best_match(drivers: List[DriverRoute], walker: WalkerRoute, min_saving_m: fl
 def best_match_(drivers: List[AgentState], walker: AgentState, min_saving_m: float = 800.0) \
         -> Tuple[Optional[Match], Optional[AgentState]]:
     best: Optional[Match] = None
-    driver: Optional[AgentState] = None
+    best_driver = None
     best_total_walk = float("inf")
     best_arrival = float("inf")
 
@@ -371,11 +371,11 @@ def best_match_(drivers: List[AgentState], walker: AgentState, min_saving_m: flo
             if arrival_time < best_arrival:
                 best_arrival = arrival_time
                 best = m
-                driver = d_agent
+                best_driver = d_agent
         except RuntimeError:
             continue
 
-    return best, driver
+    return best, best_driver
 
 
 def write_routes_json(sims: List[MatchSimulation], filename="routes.json"):
@@ -450,11 +450,14 @@ def create_matches(driver_agent_list,
                    walker_agent_list,
                    min_saving_m=800) -> Tuple[List[MatchSimulation], List[AgentState], List[AgentState]]:
     match_simulation_list = []
-    for walker_agent in walker_agent_list:
-        match, driver_agent = best_match_(driver_agent_list, walker_agent, min_saving_m)
+    drivers = driver_agent_list.copy()
+    walkers = walker_agent_list.copy()
+    for walker_agent in walkers:
+        match, driver_agent = best_match_(drivers, walker_agent, min_saving_m)
         if match is not None:
             driver_agent.assigned = True
             walker_agent.assigned = True
+            drivers.remove(driver_agent)
             driver_agent_list.remove(driver_agent)
             walker_agent_list.remove(walker_agent)
 
@@ -575,9 +578,21 @@ def start():
                 elif kind == "walker":
                     walker_agent_list.append(new_agent)
 
+        (matches_sim_list_new,
+         driver_agent_list_new,
+         walker_agent_list_new) = create_matches(driver_agent_list,
+                                             walker_agent_list,
+                                             min_saving_m=800)
+        print("match list", len(matches_sim_list_new))
+        print("driber list ",len(driver_agent_list_new))
+        print("walker list ", len(walker_agent_list_new))
+        for m in matches_sim_list_new: matches_sim_list.append(m)
 
 
-        # update all leftover drivers (unmatched) if you want them visible
+
+
+
+        # update all leftover drivers
         for a in driver_agent_list:
             a.update_position(t)
 

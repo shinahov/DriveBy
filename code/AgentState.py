@@ -1,7 +1,9 @@
 from __future__ import annotations
-from dataclasses import dataclass
+
+import uuid
 from typing import Tuple, Optional
 from RouteBase import RouteBase
+from dataclasses import dataclass, field
 
 LatLon = Tuple[float, float]
 
@@ -9,6 +11,7 @@ LatLon = Tuple[float, float]
 @dataclass
 class AgentState:
     route: RouteBase
+    agent_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     start_offset_s: float = 0.0
     time_scale: float = 1.0
     idx: int = 0
@@ -39,4 +42,12 @@ class AgentState:
         if self.pos is None:
             raise RuntimeError("Position not set yet. Call update_position() first.")
         return self.pos
+
+    def __eq__(self, other):
+        if not isinstance(other, AgentState):
+            return NotImplemented
+        return self.agent_id == other.agent_id
+
+    def __hash__(self):
+        return hash(self.agent_id)
 
