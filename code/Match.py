@@ -34,3 +34,15 @@ class Match:
     # driver ETAs relative to driver route start (optional but useful)
     driver_pickup_eta_s: float
     driver_dropoff_eta_s: float
+
+
+@dataclass
+class MatchLight:
+    pickup: LatLon
+    dropoff: LatLon
+    pickup_index: int
+    dropoff_index: int
+    pick_walk_dist_m: float
+    drop_walk_dist_m: float
+    pick_walk_s: float
+    drop_walk_s: float
