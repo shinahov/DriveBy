@@ -64,6 +64,18 @@ function createWalkerTriangleMarker(latlng) {
     });
 }
 
+function redrawPreviewLine() {
+  if (tmpPreviewLine) { map.removeLayer(tmpPreviewLine); tmpPreviewLine = null; }
+
+  // confirmed start + pending/confirmed dest
+  const a = startPoint;
+  const b = (step === "pick_dest" && pendingPoint) ? pendingPoint : destPoint;
+
+  if (a && b) {
+    tmpPreviewLine = L.polyline([a, b], { weight: 3, dashArray: "6,6" }).addTo(map);
+  }
+}
+
 function createPulsingDriverMarker(latlng) {
     return L.marker(latlng, {
         icon: L.divIcon({
@@ -134,7 +146,7 @@ function clearSimLines(sim) {
     });
 }
 
-// ---------- Routes (load once) ----------
+//Routes (load once)
 async function tryLoadRoutes() {
     if (routesLoaded) return;
 
@@ -324,6 +336,9 @@ let destPoint = null;            // [lat, lon]
 
 let tmpStartMarker = null;
 let tmpDestMarker = null;
+let tmpPreviewLine = null;
+
+
 
 function clearTmp() {
     if (tmpStartMarker) {
@@ -333,6 +348,22 @@ function clearTmp() {
     if (tmpDestMarker) {
         map.removeLayer(tmpDestMarker);
         tmpDestMarker = null;
+    }
+    if (tmpPreviewLine) {
+        map.removeLayer(tmpPreviewLine);
+        tmpPreviewLine = null;
+    }
+}
+
+function showTempMarkers(step, point) {
+    if(step === "pick_start") {
+        if (tmpStartMarker) map.removeLayer(tmpStartMarker);
+        tmpStartMarker = L.circleMarker(point, {radius: 7, weight: 2, fillOpacity: 1})
+            .addTo(map).bindTooltip("START (pending)");
+    } else if(step === "pick_dest") {
+        if (tmpDestMarker) map.removeLayer(tmpDestMarker);
+        tmpDestMarker = L.circleMarker(point, {radius: 7, weight: 2, fillOpacity: 1})
+            .addTo(map).bindTooltip("DEST (pending)");
     }
 }
 
@@ -468,11 +499,13 @@ map.on("click", (ev) => {
 
     pendingPoint = [ev.latlng.lat, ev.latlng.lng];
     btnConfirm.disabled = false;
+    showTempMarkers(step, pendingPoint);
 
     if (step === "pick_start") {
         showCreate(`${kind}: START selected = ${fmt(pendingPoint)}\nClick Confirm`);
     } else {
         showCreate(`${kind}: DEST selected = ${fmt(pendingPoint)}\nClick Confirm`);
+        redrawPreviewLine();
     }
 });
 
