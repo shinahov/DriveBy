@@ -17,6 +17,50 @@
             width: 100%;
         }
 
+        #createBox {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            left: auto;
+
+            width: 260px;
+            max-height: 180px;
+            overflow-y: auto;
+
+            padding: 8px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+            z-index: 10001;
+
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        #createMsg {
+            font-family: sans-serif;
+            font-size: 13px;
+            white-space: pre-wrap;
+            line-height: 1.2;
+            margin: 0;
+        }
+
+        #createBox .row {
+            display: flex;
+            gap: 2px;
+            flex-wrap: wrap; /* falls zu eng */
+            align-items: center;
+        }
+
+        #createBox button {
+            padding: 4px 8px;
+            font-size: 12px;
+            margin: 1px 0;
+            border-radius: 6px;
+        }
+
+
         .pulse-black {
             width: 18px;
             height: 18px;
@@ -81,14 +125,23 @@
 <div class="controls">
     <button id="btn-faster">Faster</button>
     <button id="btn-slower">Slower</button>
-    <button id="btn-add-agent">Add agent</button>
-    <button id="btn-set-start" disabled>Set start</button>
-    <button id="btn-set-dest" disabled>Set dest</button>
-    <button id="btn-create-agent" disabled>Create</button>
-    <button id="btn-cancel-agent" disabled>Cancel</button>
+    <button id="btn-open-create">Add agent</button>
 </div>
 <div class="info" id="info">Starting...</div>
+<div id="createBox" style="display:none;">
+    <div id="createMsg">Create: -</div>
 
+    <div class="row">
+        <button id="btn-kind-walker">Add walker</button>
+        <button id="btn-kind-driver">Add driver</button>
+    </div>
+
+    <div class="row">
+        <button id="btn-confirm" disabled>Confirm</button>
+        <button id="btn-create" disabled>Create agent</button>
+        <button id="btn-cancel">Cancel</button>
+    </div>
+</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="map.js"></script>
 </body>

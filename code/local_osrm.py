@@ -505,7 +505,7 @@ def snapshot_all(t_s: float, sims: list):
 
 def handle_req(req, offset:float):
     agent = None
-    print(req["start"], req["dest"])
+    print(f"new {req["type"]} agent", req["start"], req["dest"])
     start = (req["start"]["lat"], req["start"]["lon"])
     dest = (req["dest"]["lat"], req["dest"]["lon"])
     if req["type"] == "driver":
@@ -526,7 +526,7 @@ def start():
     #walker = walker_list[0]
     walker_agent = walker_agent_list[0]
 
-    driver_agent_list = create_drivers(start, end, radius_m=1000, count=10)
+    driver_agent_list = create_drivers(start, end, radius_m=1000, count=20)
 
     (matches_sim_list,
      driver_agent_list,

@@ -303,25 +303,29 @@ updatePositions();
 
 // create agent
 
-let createMode = false;
-let pickTarget = null;
-let newStart = null;
-let newDest = null;
+// agent createin logic
+
+const createBox = document.getElementById("createBox");
+const createMsg = document.getElementById("createMsg");
+
+const btnOpen = document.getElementById("btn-open-create");
+const btnWalker = document.getElementById("btn-kind-walker");
+const btnDriver = document.getElementById("btn-kind-driver");
+const btnConfirm = document.getElementById("btn-confirm");
+const btnCreate = document.getElementById("btn-create");
+const btnCancel = document.getElementById("btn-cancel");
+
+let createMode = false;          // panel active?
+let kind = null;
+let step = "choose_kind";
+let pendingPoint = null;         // [lat, lon]
+let startPoint = null;           // [lat, lon]
+let destPoint = null;            // [lat, lon]
 
 let tmpStartMarker = null;
 let tmpDestMarker = null;
-let tmpLine = null;
 
-function setCreateUiEnabled(on) {
-    document.getElementById("btn-set-start").disabled = !on;
-    document.getElementById("btn-set-dest").disabled = !on;
-    document.getElementById("btn-create-agent").disabled = !on;
-    document.getElementById("btn-cancel-agent").disabled = !on;
-
-}
-
-// toggle create mode
-function clearTempLayers() {
+function clearTmp() {
     if (tmpStartMarker) {
         map.removeLayer(tmpStartMarker);
         tmpStartMarker = null;
@@ -330,88 +334,111 @@ function clearTempLayers() {
         map.removeLayer(tmpDestMarker);
         tmpDestMarker = null;
     }
-    if (tmpLine) {
-        map.removeLayer(tmpLine);
-        tmpLine = null;
-    }
 }
 
-// drew temp markers/line
-function redrawTemp() {
-    clearTempLayers();
-
-    if (newStart) {
-        tmpStartMarker = L.circleMarker(newStart, {
-            radius: 7, weight: 2, fillOpacity: 1
-        }).addTo(map).bindTooltip("New agent START");
-    }
-    if (newDest) {
-        tmpDestMarker = L.circleMarker(newDest, {
-            radius: 7, weight: 2, fillOpacity: 1
-        }).addTo(map).bindTooltip("New agent DEST");
-    }
-    if (newStart && newDest) {
-        tmpLine = L.polyline([newStart, newDest], {weight: 3, dashArray: "4"}).addTo(map);
-    }
-}
-
-//
-function updateCreateInfo() {
-  const s = newStart ? `${newStart[0].toFixed(6)}, ${newStart[1].toFixed(6)}` : "-";
-  const d = newDest ? `${newDest[0].toFixed(6)}, ${newDest[1].toFixed(6)}` : "-";
-  const mode = createMode ? `CREATE MODE (${pickTarget || "choose start/dest"})` : "normal";
-
-  infoEl.textContent =
-    `mode: ${mode}\n` +
-    `new start: ${s}\n` +
-    `new dest:  ${d}\n`;
-}
-
-
-document.getElementById("btn-add-agent").onclick = () => {
-    createMode = true;
-    pickTarget = "start";
-    newStart = null;
-    newDest = null;
-    setCreateUiEnabled(true);
-    redrawTemp();
-    updateCreateInfo();
-};
-
-document.getElementById("btn-set-start").onclick = () => {
-    if (!createMode) return;
-    pickTarget = "start";
-    updateCreateInfo();
-};
-
-document.getElementById("btn-set-dest").onclick = () => {
-    if (!createMode) return;
-    pickTarget = "dest";
-    updateCreateInfo();
-};
-
-document.getElementById("btn-cancel-agent").onclick = () => {
+function resetCreate() {
     createMode = false;
-    pickTarget = null;
-    newStart = null;
-    newDest = null;
-    setCreateUiEnabled(false);
-    clearTempLayers();
-    updateCreateInfo();
+    kind = null;
+    step = "choose_kind";
+    pendingPoint = null;
+    startPoint = null;
+    destPoint = null;
+
+    btnConfirm.disabled = true;
+    btnCreate.disabled = true;
+
+    clearTmp();
+    createBox.style.display = "none";
+}
+
+function showCreate(msg) {
+    createBox.style.display = "block";
+    createMsg.textContent = msg;
+}
+
+function fmt(p) {
+    return `${p[0].toFixed(6)}, ${p[1].toFixed(6)}`;
+}
+
+btnOpen.onclick = () => {
+    createMode = true;
+    kind = null;
+    step = "choose_kind";
+    pendingPoint = null;
+    startPoint = null;
+    destPoint = null;
+
+    btnConfirm.disabled = true;
+    btnCreate.disabled = true;
+
+    clearTmp();
+    showCreate("Choose: Add walker or Add driver");
 };
 
-document.getElementById("btn-create-agent").onclick = async () => {
+btnCancel.onclick = () => resetCreate();
+
+btnWalker.onclick = () => {
     if (!createMode) return;
-    if (!newStart || !newDest) {
-        alert("Please set start and dest by clicking on the map.");
+    kind = "walker";
+    step = "pick_start";
+    pendingPoint = null;
+    btnConfirm.disabled = true;
+    btnCreate.disabled = true;
+    showCreate("Walker: click on map to select START, then Confirm");
+};
+
+btnDriver.onclick = () => {
+    if (!createMode) return;
+    kind = "driver";
+    step = "pick_start";
+    pendingPoint = null;
+    btnConfirm.disabled = true;
+    btnCreate.disabled = true;
+    showCreate("Driver: click on map to select START, then Confirm");
+};
+
+btnConfirm.onclick = () => {
+    if (!createMode) return;
+    if (!pendingPoint) return;
+
+    if (step === "pick_start") {
+        startPoint = pendingPoint;
+        pendingPoint = null;
+        btnConfirm.disabled = true;
+
+        if (tmpStartMarker) map.removeLayer(tmpStartMarker);
+        tmpStartMarker = L.circleMarker(startPoint, {radius: 7, weight: 2, fillOpacity: 1})
+            .addTo(map).bindTooltip("START");
+
+        step = "pick_dest";
+        showCreate(`${kind}: START confirmed = ${fmt(startPoint)}\nNow click map to select DEST, then Confirm`);
         return;
     }
 
-    // Example payload - adapt to what backend expects
+    if (step === "pick_dest") {
+        destPoint = pendingPoint;
+        pendingPoint = null;
+        btnConfirm.disabled = true;
+
+        if (tmpDestMarker) map.removeLayer(tmpDestMarker);
+        tmpDestMarker = L.circleMarker(destPoint, {radius: 7, weight: 2, fillOpacity: 1})
+            .addTo(map).bindTooltip("DEST");
+
+        step = "ready";
+        btnCreate.disabled = false;
+        showCreate(`${kind}: DEST confirmed = ${fmt(destPoint)}\nClick "Create agent"`);
+        return;
+    }
+};
+
+btnCreate.onclick = async () => {
+    if (!createMode) return;
+    if (!kind || !startPoint || !destPoint) return;
+
     const payload = {
-        type: "walker",     // or "driver" (add a dropdown later)
-        start: {lat: newStart[0], lon: newStart[1]},
-        dest: {lat: newDest[0], lon: newDest[1]},
+        type: kind,
+        start: {lat: startPoint[0], lon: startPoint[1]},
+        dest: {lat: destPoint[0], lon: destPoint[1]}
     };
 
     try {
@@ -420,39 +447,34 @@ document.getElementById("btn-create-agent").onclick = async () => {
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify(payload)
         });
-
         if (!res.ok) {
             const txt = await res.text();
             throw new Error(`HTTP ${res.status}: ${txt}`);
         }
 
-        // success -> reset UI
-        createMode = false;
-        pickTarget = null;
-        newStart = null;
-        newDest = null;
-        setCreateUiEnabled(false);
-        clearTempLayers();
-        updateCreateInfo();
+        showCreate(`Created ${kind}: ${fmt(startPoint)} -> ${fmt(destPoint)}`);
+        // optional: auto close after success:
+        resetCreate();
+
     } catch (e) {
         alert("Create agent failed: " + e.message);
     }
 };
 
-// Map click capture
+// Map click
 map.on("click", (ev) => {
     if (!createMode) return;
-    if (!pickTarget) return;
+    if (step !== "pick_start" && step !== "pick_dest") return;
 
-    const lat = ev.latlng.lat;
-    const lon = ev.latlng.lng;
+    pendingPoint = [ev.latlng.lat, ev.latlng.lng];
+    btnConfirm.disabled = false;
 
-    if (pickTarget === "start") newStart = [lat, lon];
-    if (pickTarget === "dest") newDest = [lat, lon];
-
-    redrawTemp();
-    updateCreateInfo();
+    if (step === "pick_start") {
+        showCreate(`${kind}: START selected = ${fmt(pendingPoint)}\nClick Confirm`);
+    } else {
+        showCreate(`${kind}: DEST selected = ${fmt(pendingPoint)}\nClick Confirm`);
+    }
 });
 
 // init
-setCreateUiEnabled(false);
+resetCreate();
