@@ -285,7 +285,7 @@ async function updatePositions() {
     }
 }
 
-// ---------- Controls ----------
+// controls
 document.getElementById("btn-faster").onclick = () => {
     fetch("/faster");
 };
@@ -293,10 +293,166 @@ document.getElementById("btn-slower").onclick = () => {
     fetch("/slower");
 };
 
-// ---------- Scheduling ----------
+//scheduling
 setInterval(tryLoadRoutes, 300);
 setInterval(updatePositions, 200);
 
 // Start immediately
 tryLoadRoutes();
 updatePositions();
+
+// create agent
+
+let createMode = false;
+let pickTarget = null;
+let newStart = null;
+let newDest = null;
+
+let tmpStartMarker = null;
+let tmpDestMarker = null;
+let tmpLine = null;
+
+function setCreateUiEnabled(on) {
+    document.getElementById("btn-set-start").disabled = !on;
+    document.getElementById("btn-set-dest").disabled = !on;
+    document.getElementById("btn-create-agent").disabled = !on;
+    document.getElementById("btn-cancel-agent").disabled = !on;
+
+}
+
+// toggle create mode
+function clearTempLayers() {
+    if (tmpStartMarker) {
+        map.removeLayer(tmpStartMarker);
+        tmpStartMarker = null;
+    }
+    if (tmpDestMarker) {
+        map.removeLayer(tmpDestMarker);
+        tmpDestMarker = null;
+    }
+    if (tmpLine) {
+        map.removeLayer(tmpLine);
+        tmpLine = null;
+    }
+}
+
+// drew temp markers/line
+function redrawTemp() {
+    clearTempLayers();
+
+    if (newStart) {
+        tmpStartMarker = L.circleMarker(newStart, {
+            radius: 7, weight: 2, fillOpacity: 1
+        }).addTo(map).bindTooltip("New agent START");
+    }
+    if (newDest) {
+        tmpDestMarker = L.circleMarker(newDest, {
+            radius: 7, weight: 2, fillOpacity: 1
+        }).addTo(map).bindTooltip("New agent DEST");
+    }
+    if (newStart && newDest) {
+        tmpLine = L.polyline([newStart, newDest], {weight: 3, dashArray: "4"}).addTo(map);
+    }
+}
+
+//
+function updateCreateInfo() {
+  const s = newStart ? `${newStart[0].toFixed(6)}, ${newStart[1].toFixed(6)}` : "-";
+  const d = newDest ? `${newDest[0].toFixed(6)}, ${newDest[1].toFixed(6)}` : "-";
+  const mode = createMode ? `CREATE MODE (${pickTarget || "choose start/dest"})` : "normal";
+
+  infoEl.textContent =
+    `mode: ${mode}\n` +
+    `new start: ${s}\n` +
+    `new dest:  ${d}\n`;
+}
+
+
+document.getElementById("btn-add-agent").onclick = () => {
+    createMode = true;
+    pickTarget = "start";
+    newStart = null;
+    newDest = null;
+    setCreateUiEnabled(true);
+    redrawTemp();
+    updateCreateInfo();
+};
+
+document.getElementById("btn-set-start").onclick = () => {
+    if (!createMode) return;
+    pickTarget = "start";
+    updateCreateInfo();
+};
+
+document.getElementById("btn-set-dest").onclick = () => {
+    if (!createMode) return;
+    pickTarget = "dest";
+    updateCreateInfo();
+};
+
+document.getElementById("btn-cancel-agent").onclick = () => {
+    createMode = false;
+    pickTarget = null;
+    newStart = null;
+    newDest = null;
+    setCreateUiEnabled(false);
+    clearTempLayers();
+    updateCreateInfo();
+};
+
+document.getElementById("btn-create-agent").onclick = async () => {
+    if (!createMode) return;
+    if (!newStart || !newDest) {
+        alert("Please set start and dest by clicking on the map.");
+        return;
+    }
+
+    // Example payload - adapt to what backend expects
+    const payload = {
+        type: "walker",     // or "driver" (add a dropdown later)
+        start: {lat: newStart[0], lon: newStart[1]},
+        dest: {lat: newDest[0], lon: newDest[1]},
+    };
+
+    try {
+        const res = await fetch("/create_agent", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            const txt = await res.text();
+            throw new Error(`HTTP ${res.status}: ${txt}`);
+        }
+
+        // success -> reset UI
+        createMode = false;
+        pickTarget = null;
+        newStart = null;
+        newDest = null;
+        setCreateUiEnabled(false);
+        clearTempLayers();
+        updateCreateInfo();
+    } catch (e) {
+        alert("Create agent failed: " + e.message);
+    }
+};
+
+// Map click capture
+map.on("click", (ev) => {
+    if (!createMode) return;
+    if (!pickTarget) return;
+
+    const lat = ev.latlng.lat;
+    const lon = ev.latlng.lng;
+
+    if (pickTarget === "start") newStart = [lat, lon];
+    if (pickTarget === "dest") newDest = [lat, lon];
+
+    redrawTemp();
+    updateCreateInfo();
+});
+
+// init
+setCreateUiEnabled(false);

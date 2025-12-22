@@ -100,6 +100,7 @@ def fetch_route(start: LatLon, dest: LatLon, profile: str):
     b_lat, b_lon = dest
 
     coords = f"{a_lon},{a_lat};{b_lon},{b_lat}"
+    print(coords)
     url = (
         f"{base}/route/v1/{profile}/{coords}"
         "?overview=full&geometries=geojson&annotations=true&steps=false"
@@ -497,10 +498,13 @@ def snapshot_all(t_s: float, sims: list):
 
 def handle_req(req, offset:float):
     agent = None
+    print(req["start"], req["dest"])
+    start = (req["start"]["lat"], req["start"]["lon"])
+    dest = (req["dest"]["lat"], req["dest"]["lon"])
     if req["type"] == "driver":
-        agent = create_driver_agent(req["start"], req["dest"], offset=offset)
+        agent = create_driver_agent(start, dest, offset=offset)
     elif req["type"] == "walker":
-        agent = create_walker_agent(req["start"], req["dest"], offset=offset)
+        agent = create_walker_agent(start, dest, offset=offset)
     return agent, req["type"]
 
 
