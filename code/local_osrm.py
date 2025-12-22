@@ -284,6 +284,9 @@ def find_dropoff(driver: DriverRoute,
         raise RuntimeError("No dropoff point found")
     return pts[best_i], best_m, best_s, best_i
 
+def is_within_dist(p1, p2, max_dist_m):
+    return haversine_m(p1, p2) <= max_dist_m
+
 
 def build_match(driver: RouteBase, walker: RouteBase) -> Match:
     pickup, pick_m, pick_s, pi = find_pickup(driver, walker)
@@ -301,7 +304,11 @@ def build_match(driver: RouteBase, walker: RouteBase) -> Match:
     saving_s = walker.duration - total_walk_s
 
     walk_route_to_pickup = build_walker_route(walker.start, pickup, "walking")
+    if not is_within_dist(walk_route_to_pickup.dest, pickup, 30.0):
+        raise RuntimeError("Pickup route endpoint too far from pickup point")
     walk_route_from_dropoff = build_walker_route(dropoff, walker.dest, "walking")
+    if not is_within_dist(walk_route_from_dropoff.start, dropoff, 30.0):
+        raise RuntimeError("Dropoff route startpoint too far from dropoff point")
 
     return Match(
         driver=driver,
@@ -406,9 +413,9 @@ def write_routes_json(sims: List[MatchSimulation], filename="routes.json"):
     write_positions_json({"routes": routes}, filename=filename)
 
 
-# -------------------------
+
 # demo / map (OBSOLET)
-# -------------------------
+
 def draw_map(drivers: List[DriverRoute], match: Optional[Match], walker: WalkerRoute, center: LatLon) -> None:
     m = folium.Map(location=center, zoom_start=12)
 
@@ -438,9 +445,9 @@ def draw_map(drivers: List[DriverRoute], match: Optional[Match], walker: WalkerR
     webbrowser.open("web/map.html")
 
 
-# -------------------------
+
 # run
-# -------------------------
+
 def create_agent(route: RouteBase) -> AgentState:
     return AgentState(
         route=route
