@@ -327,6 +327,11 @@ const btnConfirm = document.getElementById("btn-confirm");
 const btnCreate = document.getElementById("btn-create");
 const btnCancel = document.getElementById("btn-cancel");
 
+const btnSpeed = document.getElementById("btn-speed");
+const speedBox = document.getElementById("speedBox");
+const speedRange = document.getElementById("speedRange");
+const speedVal = document.getElementById("speedVal");
+
 let createMode = false;          // panel active?
 let kind = null;
 let step = "choose_kind";
@@ -428,6 +433,22 @@ btnDriver.onclick = () => {
     showCreate("Driver: click on map to select START, then Confirm");
 };
 
+btnSpeed.onclick = () => {
+  speedBox.style.display = (speedBox.style.display === "none") ? "block" : "none";
+};
+
+let speedTimer = null;
+speedRange.addEventListener("input", () => {
+  const v = parseFloat(speedRange.value);
+  speedVal.textContent = v.toFixed(2);
+
+  // throttle network calls
+  if (speedTimer) clearTimeout(speedTimer);
+  speedTimer = setTimeout(() => {
+    fetch("/speed?value=" + encodeURIComponent(v));
+  }, 80);
+});
+
 btnConfirm.onclick = () => {
     if (!createMode) return;
     if (!pendingPoint) return;
@@ -494,6 +515,7 @@ btnCreate.onclick = async () => {
 
 // Map click
 map.on("click", (ev) => {
+    speedBox.style.display = "none"
     if (!createMode) return;
     if (step !== "pick_start" && step !== "pick_dest") return;
 

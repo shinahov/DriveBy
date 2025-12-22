@@ -4,6 +4,7 @@ import tempfile
 import threading
 import time
 from queue import Queue
+from urllib.parse import urlparse, parse_qs
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 
@@ -31,6 +32,22 @@ def make_handler(q: Queue):
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(b"OK")
+                return
+
+            if self.path.startswith("/speed"):
+                qs = parse_qs(urlparse(self.path).query)
+                v = qs.get("value", [None])[0]
+                try:
+                    if v is None:
+                        raise ValueError("missing value")
+                    MyHandler.speed = max(0.001, float(v))
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"OK")
+                except Exception as e:
+                    self.send_response(400)
+                    self.end_headers()
+                    self.wfile.write(str(e).encode("utf-8"))
                 return
 
             return super().do_GET()

@@ -522,11 +522,11 @@ def start():
     walker_end = (51.219105, 6.787711)
 
     # walker route once
-    walker_agent_list = create_walkers(walker_start, walker_end, 300, 10)
+    walker_agent_list = create_walkers(walker_start, walker_end, 300, 2)
     #walker = walker_list[0]
     walker_agent = walker_agent_list[0]
 
-    driver_agent_list = create_drivers(start, end, radius_m=1000, count=20)
+    driver_agent_list = create_drivers(start, end, radius_m=1000, count=5)
 
     (matches_sim_list,
      driver_agent_list,
