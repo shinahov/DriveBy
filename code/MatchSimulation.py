@@ -21,9 +21,11 @@ class MatchSimulation:
     walk_from_dropoff_agent: AgentState
 
     phase: Phase = Phase.WALK_TO_PICKUP
+    creation_time_s: float = 0.0
     walker_pos: Optional[LatLon] = None
 
     def update(self, t_s: float) -> None:
+        t = t_s - self.creation_time_s
         # update driver always
         self.driver_agent.update_position(t_s)
 
@@ -32,23 +34,23 @@ class MatchSimulation:
         t_driver_dropoff = self.match.driver_dropoff_eta_s
         t_walk_from_dropoff_end = t_driver_dropoff + self.match.walk_route_from_dropoff.duration
 
-        if t_s < t_walk_to_pickup_end:
+        if t < t_walk_to_pickup_end:
             self.phase = Phase.WALK_TO_PICKUP
-            self.walk_to_pickup_agent.update_position(t_s)
+            self.walk_to_pickup_agent.update_position(t)
             self.walker_pos = self.walk_to_pickup_agent.get_pos()
 
-        elif t_s < t_driver_pickup:
+        elif t < t_driver_pickup:
             self.phase = Phase.WAIT_AT_PICKUP
             self.walker_pos = self.match.pickup
 
-        elif t_s < t_driver_dropoff:
+        elif t < t_driver_dropoff:
             self.phase = Phase.RIDE_WITH_DRIVER
             self.walker_pos = self.driver_agent.get_pos()
 
-        elif t_s < t_walk_from_dropoff_end:
+        elif t < t_walk_from_dropoff_end:
             self.phase = Phase.WALK_FROM_DROPOFF
             # walker starts this sub-walk at t_driver_dropoff => use local time
-            self.walk_from_dropoff_agent.update_position(t_s - t_driver_dropoff)
+            self.walk_from_dropoff_agent.update_position(t - t_driver_dropoff)
             self.walker_pos = self.walk_from_dropoff_agent.get_pos()
 
         else:
