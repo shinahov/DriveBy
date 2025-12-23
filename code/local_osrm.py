@@ -574,8 +574,8 @@ def write_routes_json(sims: List[MatchSimulation], version: float, filename="rou
                     "dropoff": m.dropoff_index}
             })
 
-    write_positions_json(
-        {"routes_version": version, "routes": routes}, filename=filename)
+        write_positions_json(
+        {"match_id": sim.match_id,"routes_version": version, "routes": routes}, filename=filename)
 
 
 # demo / map (OBSOLET)
@@ -652,7 +652,7 @@ def snapshot_all(t_s: float, sims: list):
         driver_pos = sim.get_driver_pos()
 
         frames.append({
-            "sim_id": i,
+            "sim_id": sim.match_id,
             "phase": sim.phase.name,
             "walker": {"lat": walker_pos[0], "lon": walker_pos[1]},
             "driver": {"lat": driver_pos[0], "lon": driver_pos[1]},
@@ -781,10 +781,12 @@ def start():
         # optional: also include unmatched drivers/walkers as extra lists
         data["leftover_drivers"] = \
             [{"lat": a.get_pos()[0],
-              "lon": a.get_pos()[1]} for a in driver_agent_list]
+              "lon": a.get_pos()[1],
+              "agent_id": a.agent_id} for a in driver_agent_list]
         data["leftover_walkers"] = \
             [{"lat": a.get_pos()[0],
-              "lon": a.get_pos()[1]} for a in walker_agent_list]
+              "lon": a.get_pos()[1],
+              "agent_id": a.agent_id} for a in walker_agent_list]
 
         write_positions_json(data)
 

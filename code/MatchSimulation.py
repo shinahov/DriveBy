@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import uuid
 from enum import Enum, auto
 from typing import Optional, Tuple
 from Match import Match
@@ -19,7 +20,7 @@ class MatchSimulation:
     driver_agent: AgentState
     walk_to_pickup_agent: AgentState
     walk_from_dropoff_agent: AgentState
-
+    match_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     phase: Phase = Phase.WALK_TO_PICKUP
     creation_time_s: float = 0.0
     walker_pos: Optional[LatLon] = None
