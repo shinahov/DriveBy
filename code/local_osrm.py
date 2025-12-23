@@ -12,7 +12,7 @@ from queue import Queue, Empty
 from RouteBase import LatLon, DriverRoute, WalkerRoute, RouteBase
 from Match import Match, MatchLight
 from AgentState import AgentState
-from MatchSimulation import MatchSimulation
+from MatchSimulation import MatchSimulation, Phase
 from realtime_runner import *
 
 OSRM_DRIVE = "http://localhost:5000"
@@ -549,31 +549,33 @@ def best_match__(drivers: List[AgentState], walker: AgentState, min_saving_m: fl
     return best, best_driver
 
 
-def write_routes_json(sims: List[MatchSimulation], filename="routes.json"):
+def write_routes_json(sims: List[MatchSimulation], version: float, filename="routes.json"):
     routes = []
 
     for sim in sims:
-        m = sim.match
-        routes.append({
-            "driver_route": {
-                "geometry_latlon": sim.driver_agent.route.geometry_latlon,
-            },
-            "walk_to_pickup": {
-                "geometry_latlon": m.walk_route_to_pickup.geometry_latlon,
-            },
-            "walk_from_dropoff": {
-                "geometry_latlon": m.walk_route_from_dropoff.geometry_latlon,
-            },
-            "points": {
-                "pickup": m.pickup,
-                "dropoff": m.dropoff,
-            },
-            "idx": {
-                "pickup": m.pickup_index,
-                "dropoff": m.dropoff_index}
-        })
+        if sim.phase != Phase.DONE:
+            m = sim.match
+            routes.append({
+                "driver_route": {
+                    "geometry_latlon": sim.driver_agent.route.geometry_latlon,
+                },
+                "walk_to_pickup": {
+                    "geometry_latlon": m.walk_route_to_pickup.geometry_latlon,
+                },
+                "walk_from_dropoff": {
+                    "geometry_latlon": m.walk_route_from_dropoff.geometry_latlon,
+                },
+                "points": {
+                    "pickup": m.pickup,
+                    "dropoff": m.dropoff,
+                },
+                "idx": {
+                    "pickup": m.pickup_index,
+                    "dropoff": m.dropoff_index}
+            })
 
-    write_positions_json({"routes": routes}, filename=filename)
+    write_positions_json(
+        {"routes_version": version, "routes": routes}, filename=filename)
 
 
 # demo / map (OBSOLET)
@@ -719,7 +721,7 @@ def start():
     handler = start_server(create_q=my_queue, port=8000)
 
     # 1) write routes once
-    write_routes_json(matches_sim_list)
+    write_routes_json(matches_sim_list, version=0)
 
     # 2) write positions once (initial snapshot)
     for sim in matches_sim_list:
@@ -763,6 +765,7 @@ def start():
                 matches_sim_list.extend(matches_new)
                 if not matches_new:
                     walker_agent_list.append(new_agent)
+            write_routes_json(matches_sim_list, version=t)
 
                     # update all leftover drivers
         for a in driver_agent_list:

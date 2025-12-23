@@ -65,15 +65,18 @@ function createWalkerTriangleMarker(latlng) {
 }
 
 function redrawPreviewLine() {
-  if (tmpPreviewLine) { map.removeLayer(tmpPreviewLine); tmpPreviewLine = null; }
+    if (tmpPreviewLine) {
+        map.removeLayer(tmpPreviewLine);
+        tmpPreviewLine = null;
+    }
 
-  // confirmed start + pending/confirmed dest
-  const a = startPoint;
-  const b = (step === "pick_dest" && pendingPoint) ? pendingPoint : destPoint;
+    // confirmed start + pending/confirmed dest
+    const a = startPoint;
+    const b = (step === "pick_dest" && pendingPoint) ? pendingPoint : destPoint;
 
-  if (a && b) {
-    tmpPreviewLine = L.polyline([a, b], { weight: 3, dashArray: "6,6" }).addTo(map);
-  }
+    if (a && b) {
+        tmpPreviewLine = L.polyline([a, b], {weight: 3, dashArray: "6,6"}).addTo(map);
+    }
 }
 
 function createPulsingDriverMarker(latlng) {
@@ -146,12 +149,17 @@ function clearSimLines(sim) {
     });
 }
 
+let roadsVersion = null;
+
 //Routes (load once)
 async function tryLoadRoutes() {
-    if (routesLoaded) return;
+    //if (routesLoaded) return;
 
     try {
         const data = await fetchJsonNoCache("routes.json");
+        const v = (typeof data.routes_version === "number") ? data.routes_version : null;
+        if (v !== null && v === roadsVersion) return;
+        if (v !== null) roadsVersion = v;
         const routes = Array.isArray(data.routes) ? data.routes : [];
 
         ensureSimLayers(routes.length);
@@ -344,7 +352,6 @@ let tmpDestMarker = null;
 let tmpPreviewLine = null;
 
 
-
 function clearTmp() {
     if (tmpStartMarker) {
         map.removeLayer(tmpStartMarker);
@@ -361,11 +368,11 @@ function clearTmp() {
 }
 
 function showTempMarkers(step, point) {
-    if(step === "pick_start") {
+    if (step === "pick_start") {
         if (tmpStartMarker) map.removeLayer(tmpStartMarker);
         tmpStartMarker = L.circleMarker(point, {radius: 7, weight: 2, fillOpacity: 1})
             .addTo(map).bindTooltip("START (pending)");
-    } else if(step === "pick_dest") {
+    } else if (step === "pick_dest") {
         if (tmpDestMarker) map.removeLayer(tmpDestMarker);
         tmpDestMarker = L.circleMarker(point, {radius: 7, weight: 2, fillOpacity: 1})
             .addTo(map).bindTooltip("DEST (pending)");
@@ -434,19 +441,19 @@ btnDriver.onclick = () => {
 };
 
 btnSpeed.onclick = () => {
-  speedBox.style.display = (speedBox.style.display === "none") ? "block" : "none";
+    speedBox.style.display = (speedBox.style.display === "none") ? "block" : "none";
 };
 
 let speedTimer = null;
 speedRange.addEventListener("input", () => {
-  const v = parseFloat(speedRange.value);
-  speedVal.textContent = v.toFixed(2);
+    const v = parseFloat(speedRange.value);
+    speedVal.textContent = v.toFixed(2);
 
-  // throttle network calls
-  if (speedTimer) clearTimeout(speedTimer);
-  speedTimer = setTimeout(() => {
-    fetch("/speed?value=" + encodeURIComponent(v));
-  }, 80);
+    // throttle network calls
+    if (speedTimer) clearTimeout(speedTimer);
+    speedTimer = setTimeout(() => {
+        fetch("/speed?value=" + encodeURIComponent(v));
+    }, 80);
 });
 
 btnConfirm.onclick = () => {
