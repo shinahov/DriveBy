@@ -24,6 +24,8 @@ const infoEl = document.getElementById("info");
 
 // ---------- State ----------
 let routesLoaded = false;
+let focusedKey = null;
+
 
 // Per-simulation layers
 // simLayers[i] = { markers:{walker,driver}, lines:{pre,ride,post,w1,w2,pickup,dropoff} }
@@ -151,6 +153,88 @@ function clearSimLines(sim) {
 
 let roadsVersion = null;
 
+function applyFocus() {
+    // no focus: show everything
+    if (!focusedKey) {
+        for (let i = 0; i < simLayers.length; i++) {
+            const s = simLayers[i];
+
+            if (!map.hasLayer(s.markers.walker)) s.markers.walker.addTo(map);
+            if (!map.hasLayer(s.markers.driver)) s.markers.driver.addTo(map);
+
+            Object.values(s.lines).forEach(layer => {
+                if (layer && !map.hasLayer(layer)) layer.addTo(map);
+            });
+        }
+
+        leftoverDriverMarkers.forEach(m => { if (!map.hasLayer(m)) m.addTo(map); });
+        leftoverWalkerMarkers.forEach(m => { if (!map.hasLayer(m)) m.addTo(map); });
+
+        return;
+    }
+
+    // fokus aktiv then : make everything invisible first
+    for (let i = 0; i < simLayers.length; i++) {
+        const s = simLayers[i];
+
+        if (map.hasLayer(s.markers.walker)) map.removeLayer(s.markers.walker);
+        if (map.hasLayer(s.markers.driver)) map.removeLayer(s.markers.driver);
+
+        Object.values(s.lines).forEach(layer => {
+            if (layer && map.hasLayer(layer)) map.removeLayer(layer);
+        });
+    }
+
+    leftoverDriverMarkers.forEach(m => { if (map.hasLayer(m)) map.removeLayer(m); });
+    leftoverWalkerMarkers.forEach(m => { if (map.hasLayer(m)) map.removeLayer(m); });
+
+
+    // focused sim
+    if (focusedKey.startsWith("M:")) {
+        const parts = focusedKey.split(":");
+        const simId = parts[1]; // extract simId
+
+        // find sim layer by simId
+        let idx = -1;
+        for (let i = 0; i < simLayers.length; i++) {
+            const s = simLayers[i];
+            const dk = s.markers.driver._key || "";
+            const wk = s.markers.walker._key || "";
+            if (dk.includes(`M:${simId}:`) || wk.includes(`M:${simId}:`)) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx === -1) return;
+
+        const s = simLayers[idx];
+
+        // show only this sim
+        s.markers.walker.addTo(map);
+        s.markers.driver.addTo(map);
+
+        // show lines from this sim
+        Object.values(s.lines).forEach(layer => {
+            if (layer) layer.addTo(map);
+        });
+        return;
+    }
+
+    // leftover fokus
+    if (focusedKey.startsWith("A:")) {
+        const id = focusedKey.slice(2);
+
+        
+        for (const m of leftoverDriverMarkers) {
+            if (m._key === `A:${id}`) { m.addTo(map); return; }
+        }
+        for (const m of leftoverWalkerMarkers) {
+            if (m._key === `A:${id}`) { m.addTo(map); return; }
+        }
+    }
+}
+
+
 //Routes (load once)
 async function tryLoadRoutes() {
     //if (routesLoaded) return;
@@ -255,6 +339,8 @@ async function tryLoadRoutes() {
     } catch (e) {
         infoEl.textContent = "Waiting for routes.json ...";
     }
+    applyFocus();
+
 }
 
 // ---------- Positions (continuous) ----------
@@ -268,12 +354,43 @@ async function updatePositions() {
         for (let i = 0; i < sims.length; i++) {
             const s = sims[i];
             const layer = simLayers[i];
+            const simId = s.sim_id;
 
             if (s.walker) {
-                layer.markers.walker.setLatLng([s.walker.lat, s.walker.lon]);
+                const m = layer.markers.walker;
+                m.setLatLng([s.walker.lat, s.walker.lon]);
+
+                // key
+                m._key = `M:${simId}:W`;
+
+                // click-handler
+                if (!m._clickBound) {
+                    m.on("click", (e) => {
+                        focusedKey = e.target._key;
+                        infoEl.textContent = "FOCUS = " + focusedKey;
+                        applyFocus();
+                    });
+
+                    m._clickBound = true;
+                }
             }
+
             if (s.driver) {
-                layer.markers.driver.setLatLng([s.driver.lat, s.driver.lon]);
+                const m = layer.markers.driver;
+                m.setLatLng([s.driver.lat, s.driver.lon]);
+
+                m._key = `M:${simId}:D`;
+
+                if (!m._clickBound) {
+                    m.on("click", (e) => {
+                        focusedKey = e.target._key;
+                        infoEl.textContent = "FOCUS = " + focusedKey;
+                        applyFocus();
+                    });
+
+
+                    m._clickBound = true;
+                }
             }
         }
 
@@ -284,11 +401,37 @@ async function updatePositions() {
         ensureCircleMarkers(leftoverWalkerMarkers, lW.length, "Left walker");
 
         for (let i = 0; i < lD.length; i++) {
-            leftoverDriverMarkers[i].setLatLng([lD[i].lat, lD[i].lon]);
+            const m = leftoverDriverMarkers[i];
+            m.setLatLng([lD[i].lat, lD[i].lon]);
+
+            m._key = `A:${lD[i].agent_id}`;
+            if (!m._clickBound) {
+                m.on("click", (e) => {
+                    focusedKey = e.target._key;
+                    infoEl.textContent = "FOCUS = " + focusedKey;
+                    applyFocus();
+                });
+
+                m._clickBound = true;
+            }
         }
+
         for (let i = 0; i < lW.length; i++) {
-            leftoverWalkerMarkers[i].setLatLng([lW[i].lat, lW[i].lon]);
+            const m = leftoverWalkerMarkers[i];
+            m.setLatLng([lW[i].lat, lW[i].lon]);
+
+            m._key = `A:${lW[i].agent_id}`;
+            if (!m._clickBound) {
+                m.on("click", (e) => {
+                    focusedKey = e.target._key;
+                    infoEl.textContent = "FOCUS = " + focusedKey;
+                    applyFocus();
+                });
+
+                m._clickBound = true;
+            }
         }
+
 
         const t = (typeof data.t_s === "number") ? Math.round(data.t_s) : "?";
 
@@ -303,6 +446,8 @@ async function updatePositions() {
             ? "Routes loaded.\nWaiting for positions.json ..."
             : "Waiting for routes.json ...";
     }
+    applyFocus();
+
 }
 
 // controls
@@ -537,6 +682,12 @@ map.on("click", (ev) => {
         redrawPreviewLine();
     }
 });
+
+map.on("dblclick", () => {
+    focusedKey = null;
+    applyFocus();
+});
+
 
 // init
 resetCreate();
