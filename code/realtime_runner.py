@@ -59,6 +59,7 @@ def make_handler(q: Queue):
             if self.path.startswith("/create_status"):
                 qs = parse_qs(urlparse(self.path).query)
                 rid = qs.get("request_id", [None])[0]
+                print("Status request for", rid)
 
                 if not rid:
                     self.send_response(400)
@@ -68,6 +69,7 @@ def make_handler(q: Queue):
                     return
 
                 st = MyHandler.create_requests.get(rid, {"status": "unknown"})
+                print("Status is", st)
 
                 body = json.dumps(st).encode("utf-8")
                 self.send_response(200)

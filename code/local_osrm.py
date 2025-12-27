@@ -555,6 +555,7 @@ def write_routes_json(sims: List[MatchSimulation], version: float, filename="rou
         if sim.phase != Phase.DONE:
             m = sim.match
             routes.append({
+                "match_id": sim.match_id,
                 "driver_route": {
                     "geometry_latlon": sim.driver_agent.route.geometry_latlon,
                 },
@@ -574,7 +575,7 @@ def write_routes_json(sims: List[MatchSimulation], version: float, filename="rou
             })
 
     write_positions_json(
-        {"match_id": sim.match_id, "routes_version": version, "routes": routes}, filename=filename)
+        {"routes_version": version, "routes": routes}, filename=filename)
 
 
 # demo / map (OBSOLET)

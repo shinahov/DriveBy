@@ -343,7 +343,7 @@ async function tryLoadRoutes() {
 
 }
 
-// ---------- Positions (continuous) ----------
+// continuous
 async function updatePositions() {
     try {
         const data = await fetchJsonNoCache("positions.json");
@@ -481,7 +481,14 @@ speedRange.oninput = () => {
 
 speedRange.onchange = () => {
   fetch("/speed?value=" + speedRange.value);
+  speedBox.style.display = "none";
 };
+
+map.on("dblclick", () => {
+  focusedKey = null;
+  applyFocus();
+});
+
 
 
 

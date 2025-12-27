@@ -272,7 +272,7 @@ async function updateMyRoutes() {
 
   const data = await fetchJsonNoCache("routes.json");
   const routes = Array.isArray(data.routes) ? data.routes : [];
-  const r = routes.find(x => String(x.sim_id) === String(targetMatchId));
+  const r = routes.find(x => String(x.match_id) === String(targetMatchId));
   if (!r) return;
 
   const d = r.driver_route?.geometry_latlon;
