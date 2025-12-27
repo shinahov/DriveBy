@@ -463,6 +463,27 @@ document.getElementById("btn-open-create").onclick = () => {
   window.open("/web/create.html", "createWin", "width=900,height=700");
 };
 
+const speedRange = document.getElementById("speedRange");
+const speedVal = document.getElementById("speedVal");
+
+
+const btnSpeed = document.getElementById("btn-speed");
+const speedBox = document.getElementById("speedBox");
+
+btnSpeed.onclick = () => {
+  speedBox.style.display = speedBox.style.display === "none" ? "block" : "none";
+};
+
+
+speedRange.oninput = () => {
+  speedVal.textContent = speedRange.value;
+};
+
+speedRange.onchange = () => {
+  fetch("/speed?value=" + speedRange.value);
+};
+
+
 
 //scheduling
 setInterval(tryLoadRoutes, 300);
