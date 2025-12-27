@@ -1,7 +1,6 @@
 import math
 import random
 import time
-
 import folium
 import requests
 import webbrowser
@@ -574,8 +573,8 @@ def write_routes_json(sims: List[MatchSimulation], version: float, filename="rou
                     "dropoff": m.dropoff_index}
             })
 
-        write_positions_json(
-        {"match_id": sim.match_id,"routes_version": version, "routes": routes}, filename=filename)
+    write_positions_json(
+        {"match_id": sim.match_id, "routes_version": version, "routes": routes}, filename=filename)
 
 
 # demo / map (OBSOLET)
@@ -634,6 +633,7 @@ def create_matches(driver_agent_list,
             match_sim = MatchSimulation(
                 match=match,
                 driver_agent=driver_agent,
+                walker_agent=walker_agent,
                 walk_to_pickup_agent=create_agent(match.walk_route_to_pickup,
                                                   offset=now_t),
                 walk_from_dropoff_agent=create_agent(match.walk_route_from_dropoff,
@@ -654,8 +654,8 @@ def snapshot_all(t_s: float, sims: list):
         frames.append({
             "sim_id": sim.match_id,
             "phase": sim.phase.name,
-            "walker": {"lat": walker_pos[0], "lon": walker_pos[1]},
-            "driver": {"lat": driver_pos[0], "lon": driver_pos[1]},
+            "walker": {"agent_id": sim.walker_agent.agent_id, "lat": walker_pos[0], "lon": walker_pos[1]},
+            "driver": {"agent_id": sim.driver_agent.agent_id, "lat": driver_pos[0], "lon": driver_pos[1]},
             "meta": {
                 "t_driver_pickup": sim.match.driver_pickup_eta_s,
                 "t_driver_dropoff": sim.match.driver_dropoff_eta_s,
@@ -669,15 +669,18 @@ def snapshot_all(t_s: float, sims: list):
 
 
 def handle_req(req, offset: float):
+    id = req.get("request_id", "unknown")
+    payload = req.get("payload", {})
+
     agent = None
-    print(f"new {req["type"]} agent", req["start"], req["dest"])
-    start = (req["start"]["lat"], req["start"]["lon"])
-    dest = (req["dest"]["lat"], req["dest"]["lon"])
-    if req["type"] == "driver":
+    print(f"new {payload['type']} agent", payload["start"], payload["dest"])
+    start = (payload["start"]["lat"], payload["start"]["lon"])
+    dest = (payload["dest"]["lat"], payload["dest"]["lon"])
+    if payload["type"] == "driver":
         agent = create_driver_agent(start, dest, offset=offset)
-    elif req["type"] == "walker":
+    elif payload["type"] == "walker":
         agent = create_walker_agent(start, dest, offset=offset)
-    return agent, req["type"]
+    return id, agent, payload["type"]
 
 
 def start():
@@ -685,6 +688,7 @@ def start():
     end = (51.2277, 6.7735)
     walker_start = (51.202561, 6.780486)
     walker_end = (51.219105, 6.787711)
+    agent_id_to_reqest_id = {}
 
     # walker route once
     walker_agent_list = create_walkers(walker_start, walker_end, 300, 1)
@@ -748,7 +752,12 @@ def start():
                 req = my_queue.get_nowait()
             except Empty:
                 break
-            new_agent, kind = handle_req(req, offset=t)
+            req_id, new_agent, kind = handle_req(req, offset=t)
+            handler.create_requests[req_id] = {
+                "status": "created",
+                "kind": kind,
+                "agent_id": getattr(new_agent, "agent_id", None)
+            }
             if kind == "driver":
                 matches_new, _, _ = create_matches([new_agent],
                                                    walker_agent_list,
@@ -756,7 +765,31 @@ def start():
                                                    min_saving_m=800)
                 matches_sim_list.extend(matches_new)
                 if not matches_new:
+                    handler.create_requests[req_id] = {
+                        "status": "not_matched",
+                        "kind": kind,
+                        "agent_id": getattr(new_agent, "agent_id", None)
+                    }
+                    agent_id_to_reqest_id[new_agent.agent_id] = req_id
                     driver_agent_list.append(new_agent)
+                else:
+                    ms = matches_new[0]
+                    handler.create_requests[req_id] = {
+                        "status": "matched",
+                        "kind": kind,
+                        "agent_id": new_agent.agent_id,
+                        "match_id": ms.match_id,
+                    }
+                    agent_id_to_reqest_id[new_agent.agent_id] = req_id
+                    partner_req_id = agent_id_to_reqest_id.get(
+                        ms.walker_agent.agent_id, None)
+                    if partner_req_id is not None:
+                        handler.create_requests[partner_req_id] = {
+                            "status": "matched",
+                            "kind": "walker",
+                            "agent_id": ms.walker_agent.agent_id,
+                            "match_id": ms.match_id,
+                        }
             elif kind == "walker":
                 matches_new, _, _ = create_matches(driver_agent_list,
                                                    [new_agent],
@@ -764,10 +797,34 @@ def start():
                                                    min_saving_m=800)
                 matches_sim_list.extend(matches_new)
                 if not matches_new:
+                    handler.create_requests[req_id] = {
+                        "status": "not_matched",
+                        "kind": kind,
+                        "agent_id": getattr(new_agent, "agent_id", None)
+                    }
+                    agent_id_to_reqest_id[new_agent.agent_id] = req_id
                     walker_agent_list.append(new_agent)
+                else:
+                    ms = matches_new[0]
+                    handler.create_requests[req_id] = {
+                        "status": "matched",
+                        "kind": kind,
+                        "agent_id": new_agent.agent_id,
+                        "match_id": ms.match_id,
+                    }
+                    agent_id_to_reqest_id[new_agent.agent_id] = req_id
+                    partner_req_id = agent_id_to_reqest_id.get(
+                        ms.driver_agent.agent_id, None)
+                    if partner_req_id is not None:
+                        handler.create_requests[partner_req_id] = {
+                            "status": "matched",
+                            "kind": "driver",
+                            "agent_id": ms.driver_agent.agent_id,
+                            "match_id": ms.match_id,
+                        }
             write_routes_json(matches_sim_list, version=t)
 
-                    # update all leftover drivers
+            # update all leftover drivers
         for a in driver_agent_list:
             a.update_position(t)
 

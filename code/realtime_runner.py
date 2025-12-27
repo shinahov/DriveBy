@@ -1,4 +1,5 @@
 import json
+import uuid
 import os
 import tempfile
 import threading
@@ -8,10 +9,15 @@ from urllib.parse import urlparse, parse_qs
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 
+def create_uuid():
+    return str(uuid.uuid4())
+
+
 def make_handler(q: Queue):
     class MyHandler(SimpleHTTPRequestHandler):
         speed = 0.2
         my_queue = q  # shared
+        create_requests = {}
 
         def end_headers(self):
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
@@ -50,6 +56,28 @@ def make_handler(q: Queue):
                     self.wfile.write(str(e).encode("utf-8"))
                 return
 
+            if self.path.startswith("/create_status"):
+                qs = parse_qs(urlparse(self.path).query)
+                rid = qs.get("request_id", [None])[0]
+
+                if not rid:
+                    self.send_response(400)
+                    self.send_header("Content-Type", "text/plain; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(b"missing request_id")
+                    return
+
+                st = MyHandler.create_requests.get(rid, {"status": "unknown"})
+
+                body = json.dumps(st).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+
             return super().do_GET()
 
         def do_POST(self):
@@ -63,15 +91,23 @@ def make_handler(q: Queue):
 
             try:
                 payload = json.loads(raw.decode("utf-8"))
-                MyHandler.my_queue.put(payload)
+                requests_id = create_uuid()
+                MyHandler.my_queue.put({
+                    "request_id": requests_id,
+                    "payload": payload})
+                MyHandler.create_requests[requests_id] = {"status": "queued"}
+                body = json.dumps({"request_id": requests_id}).encode("utf-8")
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(b"OK")
+                self.wfile.write(body)
 
             except Exception as e:
+                body = json.dumps({"error": str(e)}).encode("utf-8")
                 self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(str(e).encode("utf-8"))
+                self.wfile.write(body)
 
 
 

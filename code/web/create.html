@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Create Agent</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #map { height: 100%; width: 100%; }
+
+    .panel {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      width: 320px;
+      padding: 10px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.2);
+      z-index: 10000;
+      font-family: sans-serif;
+      font-size: 13px;
+      white-space: pre-wrap;
+      line-height: 1.2;
+    }
+
+    .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+    button { padding: 6px 10px; border-radius: 6px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div class="panel">
+    <div id="msg">Choose agent type.</div>
+
+    <div class="row">
+      <button id="btn-kind-walker">Walker</button>
+      <button id="btn-kind-driver">Driver</button>
+    </div>
+
+    <div class="row">
+      <button id="btn-confirm" disabled>Confirm</button>
+      <button id="btn-create" disabled>Create</button>
+      <button id="btn-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="create.js"></script>
+</body>
+</html>

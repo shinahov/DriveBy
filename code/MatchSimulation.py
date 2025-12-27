@@ -18,6 +18,7 @@ class Phase(Enum):
 class MatchSimulation:
     match: Match
     driver_agent: AgentState
+    walker_agent: AgentState
     walk_to_pickup_agent: AgentState
     walk_from_dropoff_agent: AgentState
     match_id: str = field(default_factory=lambda: str(uuid.uuid4()))
