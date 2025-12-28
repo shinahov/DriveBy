@@ -1,55 +1,112 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <title>Create Agent</title>
+    <meta charset="utf-8"/>
+    <title>Create Agent</title>
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
-  <style>
-    html, body { height: 100%; margin: 0; }
-    #map { height: 100%; width: 100%; }
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
 
-    .panel {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      width: 320px;
-      padding: 10px;
-      background: #fff;
-      border-radius: 8px;
-      box-shadow: 0 1px 6px rgba(0,0,0,0.2);
-      z-index: 10000;
-      font-family: sans-serif;
-      font-size: 13px;
-      white-space: pre-wrap;
-      line-height: 1.2;
-    }
+        #map {
+            height: 100%;
+            width: 100%;
+        }
 
-    .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-    button { padding: 6px 10px; border-radius: 6px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-  </style>
+
+        #createBox .row {
+            display: flex;
+            gap: 2px;
+            flex-wrap: wrap; /* falls zu eng */
+            align-items: center;
+        }
+
+        #createBox button {
+            padding: 4px 8px;
+            font-size: 12px;
+            margin: 1px 0;
+            border-radius: 6px;
+        }
+
+        .panel {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            width: 300px;
+            padding: 12px;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            z-index: 10000;
+            font-family: system-ui, sans-serif;
+            font-size: 13px;
+            white-space: pre-wrap;
+            line-height: 1.2;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .panel button {
+            padding: 6px 10px;
+            font-size: 13px;
+
+            border: none;
+            border-radius: 6px;
+            background: #f2f2f2;
+            cursor: pointer;
+
+            transition: background 0.2s ease;
+        }
+
+        .panel button:hover {
+            background: #e0e0e0;
+        }
+
+        .row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 6px;
+        }
+
+        button {
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            background: #fff;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
 </head>
 <body>
-  <div id="map"></div>
+<div id="map"></div>
 
-  <div class="panel">
+<div class="panel">
     <div id="msg">Choose agent type.</div>
 
     <div class="row">
-      <button id="btn-kind-walker">Walker</button>
-      <button id="btn-kind-driver">Driver</button>
+        <button id="btn-kind-walker">Walker</button>
+        <button id="btn-kind-driver">Driver</button>
     </div>
 
     <div class="row">
-      <button id="btn-confirm" disabled>Confirm</button>
-      <button id="btn-create" disabled>Create</button>
-      <button id="btn-cancel">Cancel</button>
+        <button id="btn-confirm" disabled>Confirm</button>
+        <button id="btn-create" disabled>Create</button>
+        <button id="btn-cancel">Cancel</button>
     </div>
-  </div>
+</div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="create.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="create.js"></script>
 </body>
 </html>
