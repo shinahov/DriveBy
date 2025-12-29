@@ -460,7 +460,7 @@ document.getElementById("btn-slower").onclick = () => {
 
 
 document.getElementById("btn-open-create").onclick = () => {
-  window.open("/web/create.html", "createWin", "width=900,height=700");
+  window.open("/web/create.html", "_blank");
 };
 
 const speedRange = document.getElementById("speedRange");

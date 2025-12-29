@@ -335,11 +335,6 @@ async function updateMyRoutes() {
 
     const a = Math.min(iPick, iDrop);
     const b = Math.max(iPick, iDrop);
-    logMsg(
-        `driverIdx=${myDriverIdx} ` +
-        `routeLen=${d.length} ` +
-        `pickup=${a} drop=${b}`
-    );
 
 
     const dIdx = Number.isInteger(myDriverIdx) ? myDriverIdx : 0; // i dont why ist only works if i do this
@@ -513,6 +508,11 @@ btnCreate.onclick = async () => {
 
         const data = await res.json();
         const requestId = data.request_id;
+        if (!requestId) {
+            throw new Error(`No request_id in response: ${JSON.stringify(data)}`);
+        } else {
+            history.replaceState(null, "", "?request_id=" + requestId);
+        }
 
         createdKind = kind;
 
