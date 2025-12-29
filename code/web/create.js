@@ -60,7 +60,8 @@ let createdKind = null;  // remember what user created (walker/driver)
 let myWalkerMarker = null;
 let myDriverMarker = null;
 let myLeftoverMarker = null;
-let myWalkerIdx = null;
+let myWalkerPIdx = null;
+let myWalkerDIdx = null;
 let myDriverIdx = null;
 
 let myRoutePre = null;
@@ -269,7 +270,8 @@ async function updateMyPosition() {
             } else {
                 myWalkerMarker.setLatLng(latlng);
             }
-            myWalkerIdx = Number.isInteger(s.walker.idx) ? s.walker.idx : 0;
+            myWalkerPIdx = Number.isInteger(s.walker.pIdx) ? s.walker.pIdx : 0;
+            myWalkerDIdx = Number.isInteger(s.walker.dIdx) ? s.walker.dIdx : 0;
 
         }
 
@@ -351,12 +353,15 @@ async function updateMyRoutes() {
     const a = Math.min(iPick, iDrop);
     const b = Math.max(iPick, iDrop);
 
-
     const dIdx = Number.isInteger(myDriverIdx) ? myDriverIdx : 0; // i dont why ist only works if i do this
+    const walkerpickIdx = Number.isInteger(myWalkerPIdx) ? myWalkerPIdx : 0;
+    const walkerdropIdx = Number.isInteger(myWalkerDIdx) ? myWalkerDIdx : 0;
 
     const segPre = sliceInclusive(d, dIdx, a);
     const segRide = sliceInclusive(d, Math.max(dIdx, a), b);
     const segPost = sliceInclusive(d, Math.max(dIdx, b), d.length - 1);
+    const segWalkToPickup = sliceInclusive(w1, walkerpickIdx, w1.length - 1);
+    const segWalkFromDropoff = sliceInclusive(w2, Math.max(walkerdropIdx, 0), w2.length - 1);
 
     const all = d.concat(w1, w2);
 
@@ -378,9 +383,9 @@ async function updateMyRoutes() {
     myRouteRide = L.polyline(segRide, {weight: 6, opacity: 0.9, color: "red"}).addTo(map).bindTooltip("Driver ride");
     myRoutePost = L.polyline(segPost, {weight: 5, opacity: 0.8}).addTo(map).bindTooltip("Driver post");
 
-    myWalkToPickup = L.polyline(w1, {weight: 4, opacity: 0.85, dashArray: "6", color: "green"})
+    myWalkToPickup = L.polyline(segWalkToPickup, {weight: 4, opacity: 0.85, dashArray: "6", color: "green"})
         .addTo(map).bindTooltip("Walk to pickup");
-    myWalkFromDropoff = L.polyline(w2, {weight: 4, opacity: 0.85, dashArray: "6", color: "green"})
+    myWalkFromDropoff = L.polyline(segWalkFromDropoff, {weight: 4, opacity: 0.85, dashArray: "6", color: "green"})
         .addTo(map).bindTooltip("Walk from dropoff");
 
     myPickup = L.marker(pickup, {icon: pickDropIcon}).addTo(map).bindTooltip("Pickup");
