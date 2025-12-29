@@ -38,7 +38,7 @@ class RouteBase:
         alpha = (t_s - self.cum_time_s[i]) / seg_t
         lat1, lon1 = self.geometry_latlon[i]
         lat2, lon2 = self.geometry_latlon[i + 1]
-        return (lat1 + alpha * (lat2 - lat1), lon1 + alpha * (lon2 - lon1))
+        return (lat1 + alpha * (lat2 - lat1), lon1 + alpha * (lon2 - lon1)), i # return index as well
 
 
 @dataclass(frozen=True)

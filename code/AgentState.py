@@ -36,7 +36,7 @@ class AgentState:
             self.done = True
             return
 
-        self.pos = self.route.get_pos_at_time(t_rel)
+        self.pos, self.idx = self.route.get_pos_at_time(t_rel)
 
     def get_pos(self) -> LatLon:
         if self.pos is None:

@@ -655,8 +655,14 @@ def snapshot_all(t_s: float, sims: list):
         frames.append({
             "sim_id": sim.match_id,
             "phase": sim.phase.name,
-            "walker": {"agent_id": sim.walker_agent.agent_id, "lat": walker_pos[0], "lon": walker_pos[1]},
-            "driver": {"agent_id": sim.driver_agent.agent_id, "lat": driver_pos[0], "lon": driver_pos[1]},
+            "walker": {"agent_id": sim.walker_agent.agent_id,
+                       "lat": walker_pos[0],
+                       "lon": walker_pos[1],
+                       "idx": sim.walker_agent.idx},
+            "driver": {"agent_id": sim.driver_agent.agent_id,
+                       "lat": driver_pos[0],
+                       "lon": driver_pos[1],
+                       "idx": sim.driver_agent.idx},
             "meta": {
                 "t_driver_pickup": sim.match.driver_pickup_eta_s,
                 "t_driver_dropoff": sim.match.driver_dropoff_eta_s,

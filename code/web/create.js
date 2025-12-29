@@ -24,6 +24,10 @@ function setMsg(s) {
     msgEl.textContent = s;
 }
 
+function logMsg(s) {
+    msgEl.textContent += `\n${s}`;
+}
+
 function fmt(p) {
     return `${p[0].toFixed(6)}, ${p[1].toFixed(6)}`;
 }
@@ -56,6 +60,8 @@ let createdKind = null;  // remember what user created (walker/driver)
 let myWalkerMarker = null;
 let myDriverMarker = null;
 let myLeftoverMarker = null;
+let myWalkerIdx = null;
+let myDriverIdx = null;
 
 let myRoutePre = null;
 let myRouteRide = null;
@@ -228,6 +234,8 @@ function clearMyViewLayers() {
     myWalkerMarker = removeIfExists(myWalkerMarker);
     myDriverMarker = removeIfExists(myDriverMarker);
     myLeftoverMarker = removeIfExists(myLeftoverMarker);
+    myWalkerIdx = null;
+    myDriverIdx = null;
 
     myRoutePre = removeIfExists(myRoutePre);
     myRouteRide = removeIfExists(myRouteRide);
@@ -261,6 +269,7 @@ async function updateMyPosition() {
             } else {
                 myWalkerMarker.setLatLng(latlng);
             }
+            myWalkerIdx = Number.isInteger(s.walker.idx) ? s.walker.idx : 0;
 
         }
 
@@ -271,6 +280,7 @@ async function updateMyPosition() {
             } else {
                 myDriverMarker.setLatLng(latlng);
             }
+            myDriverIdx = Number.isInteger(s.driver.idx) ? s.driver.idx : 0;
         }
 
         return;
@@ -325,10 +335,19 @@ async function updateMyRoutes() {
 
     const a = Math.min(iPick, iDrop);
     const b = Math.max(iPick, iDrop);
+    logMsg(
+        `driverIdx=${myDriverIdx} ` +
+        `routeLen=${d.length} ` +
+        `pickup=${a} drop=${b}`
+    );
 
-    const segPre = sliceInclusive(d, 0, a);
-    const segRide = sliceInclusive(d, a, b);
-    const segPost = sliceInclusive(d, b, d.length - 1);
+
+    const dIdx = Number.isInteger(myDriverIdx) ? myDriverIdx : 0; // i dont why ist only works if i do this
+
+    const segPre = sliceInclusive(d, dIdx, a);
+    const segRide = sliceInclusive(d, Math.max(dIdx, a), b);
+    const segPost = sliceInclusive(d, Math.max(dIdx, b), d.length - 1);
+
     const all = d.concat(w1, w2);
 
     // Observe state BEFORE removing (important)
@@ -505,10 +524,6 @@ btnCreate.onclick = async () => {
         if (startMarker) {
             map.removeLayer(startMarker);
             startMarker = null;
-        }
-        if (destMarker) {
-            map.removeLayer(destMarker);
-            destMarker = null;
         }
         clearPreview();
 
