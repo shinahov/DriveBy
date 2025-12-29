@@ -638,7 +638,7 @@ def create_matches(driver_agent_list,
                 walk_to_pickup_agent=create_agent(match.walk_route_to_pickup,
                                                   offset=now_t),
                 walk_from_dropoff_agent=create_agent(match.walk_route_from_dropoff,
-                                                     offset=now_t),
+                                                     offset=now_t+match.driver_dropoff_eta_s),
                 creation_time_s=now_t
             )
             match_simulation_list.append(match_sim)

@@ -38,7 +38,7 @@ class MatchSimulation:
 
         if t < t_walk_to_pickup_end:
             self.phase = Phase.WALK_TO_PICKUP
-            self.walk_to_pickup_agent.update_position(t)
+            self.walk_to_pickup_agent.update_position(t_s)
             self.walker_pos = self.walk_to_pickup_agent.get_pos()
 
         elif t < t_driver_pickup:
@@ -52,7 +52,7 @@ class MatchSimulation:
         elif t < t_walk_from_dropoff_end:
             self.phase = Phase.WALK_FROM_DROPOFF
             # walker starts this sub-walk at t_driver_dropoff => use local time
-            self.walk_from_dropoff_agent.update_position(t - t_driver_dropoff)
+            self.walk_from_dropoff_agent.update_position(t_s)
             self.walker_pos = self.walk_from_dropoff_agent.get_pos()
 
         else:
