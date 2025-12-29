@@ -73,6 +73,34 @@ let routesTimer = null;
 
 // Helpers: fetching without cache
 
+const walkerIcon = L.icon({
+    iconUrl: "icons/walker.png",
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+    tooltipAnchor: [0, -12]
+});
+
+const driverIcon = L.icon({
+    iconUrl: "icons/car.png",
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+    tooltipAnchor: [0, -13]
+});
+
+const pickDropIcon = L.icon({
+    iconUrl: "icons/pick_drop.png",
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+    tooltipAnchor: [0, -12]
+});
+
+const destIcon = L.icon({
+    iconUrl: "icons/dest.png",
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+    tooltipAnchor: [0, -12]
+});
+
 
 async function fetchJsonNoCache(url) {
     const res = await fetch(url + "?ts=" + Date.now(), {cache: "no-store"});
@@ -229,18 +257,17 @@ async function updateMyPosition() {
         if (s.walker && typeof s.walker.lat === "number" && typeof s.walker.lon === "number") {
             const latlng = [s.walker.lat, s.walker.lon];
             if (!myWalkerMarker) {
-                myWalkerMarker = L.circleMarker(latlng, {radius: 8, weight: 2, fillOpacity: 1}).addTo(map)
-                    .bindTooltip("Walker (match)");
+                myWalkerMarker = L.marker(latlng, {icon: walkerIcon}).addTo(map).bindTooltip("Walker (match)");
             } else {
                 myWalkerMarker.setLatLng(latlng);
             }
+
         }
 
         if (s.driver && typeof s.driver.lat === "number" && typeof s.driver.lon === "number") {
             const latlng = [s.driver.lat, s.driver.lon];
             if (!myDriverMarker) {
-                myDriverMarker = L.circleMarker(latlng, {radius: 8, weight: 2, fillOpacity: 1}).addTo(map)
-                    .bindTooltip("Driver (match)");
+                myDriverMarker = L.marker(latlng, {icon: driverIcon}).addTo(map).bindTooltip("Driver (match)");
             } else {
                 myDriverMarker.setLatLng(latlng);
             }
@@ -315,21 +342,21 @@ async function updateMyRoutes() {
     myWalkFromDropoff = removeIfExists(myWalkFromDropoff);
     myPickup = removeIfExists(myPickup);
     myDropoff = removeIfExists(myDropoff);
+    clearPreview();
 
     // Draw new layers
     myRoutePre = L.polyline(segPre, {weight: 5, opacity: 0.8}).addTo(map).bindTooltip("Driver pre");
-    myRouteRide = L.polyline(segRide, {weight: 6, opacity: 0.9}).addTo(map).bindTooltip("Driver ride");
+    myRouteRide = L.polyline(segRide, {weight: 6, opacity: 0.9, color: "red"}).addTo(map).bindTooltip("Driver ride");
     myRoutePost = L.polyline(segPost, {weight: 5, opacity: 0.8}).addTo(map).bindTooltip("Driver post");
 
-    myWalkToPickup = L.polyline(w1, {weight: 4, opacity: 0.85, dashArray: "6"})
+    myWalkToPickup = L.polyline(w1, {weight: 4, opacity: 0.85, dashArray: "6", color: "green"})
         .addTo(map).bindTooltip("Walk to pickup");
-    myWalkFromDropoff = L.polyline(w2, {weight: 4, opacity: 0.85, dashArray: "6"})
+    myWalkFromDropoff = L.polyline(w2, {weight: 4, opacity: 0.85, dashArray: "6", color: "green"})
         .addTo(map).bindTooltip("Walk from dropoff");
 
-    myPickup = L.circleMarker(pickup, {radius: 7, weight: 2, fillOpacity: 1})
-        .addTo(map).bindTooltip("Pickup");
-    myDropoff = L.circleMarker(dropoff, {radius: 7, weight: 2, fillOpacity: 1})
-        .addTo(map).bindTooltip("Dropoff");
+    myPickup = L.marker(pickup, {icon: pickDropIcon}).addTo(map).bindTooltip("Pickup");
+    myDropoff = L.marker(dropoff, {icon: pickDropIcon}).addTo(map).bindTooltip("Dropoff");
+
 
     // View policy: only when route appears the first time
     if (!hadRouteBefore && all.length > 0) {
@@ -418,12 +445,6 @@ btnConfirm.onclick = () => {
         startPoint = pendingPoint;
         pendingPoint = null;
         btnConfirm.disabled = true;
-
-        if (startMarker) map.removeLayer(startMarker);
-        startMarker = L.circleMarker(startPoint, {radius: 7, weight: 2, fillOpacity: 1})
-            .addTo(map)
-            .bindTooltip("START");
-
         step = "pick_dest";
         setMsg(`${kind}: START = ${fmt(startPoint)}\nNow click map to select DEST, then Confirm.`);
         redrawPreview();
@@ -434,12 +455,6 @@ btnConfirm.onclick = () => {
         destPoint = pendingPoint;
         pendingPoint = null;
         btnConfirm.disabled = true;
-
-        if (destMarker) map.removeLayer(destMarker);
-        destMarker = L.circleMarker(destPoint, {radius: 7, weight: 2, fillOpacity: 1})
-            .addTo(map)
-            .bindTooltip("DEST");
-
         step = "ready";
         btnCreate.disabled = false;
         setMsg(`${kind}: DEST = ${fmt(destPoint)}\nClick Create.`);
@@ -487,6 +502,15 @@ btnCreate.onclick = async () => {
             `request_id = ${requestId}\n` +
             `Waiting for match...`
         );
+        if (startMarker) {
+            map.removeLayer(startMarker);
+            startMarker = null;
+        }
+        if (destMarker) {
+            map.removeLayer(destMarker);
+            destMarker = null;
+        }
+        clearPreview();
 
         // After submit, we are still in create mode but waiting; we do status polling now.
         startStatusPolling(requestId);
@@ -495,8 +519,8 @@ btnCreate.onclick = async () => {
         // On error, re-enable selection so the user can try again.
         btnWalker.disabled = false;
         btnDriver.disabled = false;
-        btnConfirm.disabled = (step === "pick_start" || step === "pick_dest") ? false : true;
-        btnCreate.disabled = (step === "ready") ? false : true;
+        btnConfirm.disabled = (!(step === "pick_start" || step === "pick_dest"));
+        btnCreate.disabled = (step !== "ready");
 
         setMsg(`Create failed:\n${e.message}`);
     }
@@ -513,9 +537,21 @@ map.on("click", (ev) => {
     btnConfirm.disabled = false;
 
     if (step === "pick_start") {
-        setMsg(`${kind}: START selected = ${fmt(pendingPoint)}\nClick Confirm.`);
+        if (!startMarker) {
+            startMarker = L.circleMarker(pendingPoint, {radius: 7, weight: 2, fillOpacity: 1})
+                .addTo(map).bindTooltip("START (pending)");
+        } else {
+            startMarker.setLatLng(pendingPoint);
+        }
+        setMsg(`Choose ${kind}: START = ${fmt(pendingPoint)}\nClick Confirm to set START.`);
     } else {
-        setMsg(`${kind}: DEST selected = ${fmt(pendingPoint)}\nClick Confirm.`);
+        if (!destMarker) {
+            destMarker = L.marker(pendingPoint, {icon: destIcon}).addTo(map).bindTooltip("DEST");
+        } else {
+            destMarker.setLatLng(pendingPoint);
+        }
+        setMsg(`Choose ${kind}: DEST = ${fmt(pendingPoint)}\nClick Confirm to set DEST.`);
+
     }
 
     redrawPreview();
