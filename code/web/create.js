@@ -291,7 +291,22 @@ async function updateMyPosition() {
         const lW = Array.isArray(data.leftover_walkers) ? data.leftover_walkers : [];
 
         const a = [...lD, ...lW].find(x => String(x.agent_id) === String(targetAgentId));
-        if (!a) return;
+        if (!a) {
+            // maybe matched now
+            const sims = Array.isArray(data.sims) ? data.sims : [];
+            const sim = sims.find(s =>
+                String(s.driver?.agent_id) === String(targetAgentId) ||
+                String(s.walker?.agent_id) === String(targetAgentId)
+            );
+
+            if (sim) {
+                viewMode = "match";
+                targetMatchId = sim.sim_id; // sim_id == match_id in your JSON
+                setMsg(`Agent matched. Switching to match view...\nmatch_id=${targetMatchId}`);
+                clearMyViewLayers(); // remove leftover marker + old layers
+            }
+            return;
+        }
 
         const latlng = [a.lat, a.lon];
         if (!myLeftoverMarker) {
