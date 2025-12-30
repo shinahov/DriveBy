@@ -19,6 +19,7 @@ const btnDriver = document.getElementById("btn-kind-driver");
 const btnConfirm = document.getElementById("btn-confirm");
 const btnCreate = document.getElementById("btn-create");
 const btnCancel = document.getElementById("btn-cancel");
+const btnFollow = document.getElementById("btn-follow");
 
 function setMsg(s) {
     msgEl.textContent = s;
@@ -76,6 +77,10 @@ let myDropoff = null;
 let statusTimer = null;
 let posTimer = null;
 let routesTimer = null;
+
+// Navigation variables
+let followEnabled = false;
+let lastUserInteractionTime = 0;
 
 
 // Helpers: fetching without cache
@@ -273,6 +278,10 @@ async function updateMyPosition() {
             myWalkerPIdx = Number.isInteger(s.walker.pIdx) ? s.walker.pIdx : 0;
             myWalkerDIdx = Number.isInteger(s.walker.dIdx) ? s.walker.dIdx : 0;
 
+            if(createdKind === "walker"){
+                follow(latlng, 14);
+            }
+
         }
 
         if (s.driver && typeof s.driver.lat === "number" && typeof s.driver.lon === "number") {
@@ -283,6 +292,9 @@ async function updateMyPosition() {
                 myDriverMarker.setLatLng(latlng);
             }
             myDriverIdx = Number.isInteger(s.driver.idx) ? s.driver.idx : 0;
+            if(createdKind === "driver"){
+                follow(latlng, 14);
+            }
         }
 
         return;
@@ -374,8 +386,8 @@ async function updateMyRoutes() {
     myRoutePost = removeIfExists(myRoutePost);
     myWalkToPickup = removeIfExists(myWalkToPickup);
     myWalkFromDropoff = removeIfExists(myWalkFromDropoff);
-    myPickup = removeIfExists(myPickup);
-    myDropoff = removeIfExists(myDropoff);
+    //myPickup = removeIfExists(myPickup);
+    //myDropoff = removeIfExists(myDropoff);
     clearPreview();
 
     // Draw new layers
@@ -388,8 +400,17 @@ async function updateMyRoutes() {
     myWalkFromDropoff = L.polyline(segWalkFromDropoff, {weight: 4, opacity: 0.85, dashArray: "6", color: "green"})
         .addTo(map).bindTooltip("Walk from dropoff");
 
-    myPickup = L.marker(pickup, {icon: pickDropIcon}).addTo(map).bindTooltip("Pickup");
-    myDropoff = L.marker(dropoff, {icon: pickDropIcon}).addTo(map).bindTooltip("Dropoff");
+    if (!myPickup) {
+        myPickup = L.marker(pickup, {icon: pickDropIcon}).addTo(map).bindTooltip("Pickup");
+    } else {
+        myPickup.setLatLng(pickup);
+    }
+
+    if (!myDropoff) {
+        myDropoff = L.marker(dropoff, {icon: pickDropIcon}).addTo(map).bindTooltip("Dropoff");
+    } else {
+        myDropoff.setLatLng(dropoff);
+    }
 
 
     // View policy: only when route appears the first time
@@ -423,6 +444,7 @@ function startViewLoops() {
     btnDriver.disabled = true;
     btnConfirm.disabled = true;
     btnCreate.disabled = true;
+    btnFollow.hidden = false;
 
     // Positions update: frequent
     posTimer = setInterval(() => {
@@ -441,6 +463,11 @@ function startViewLoops() {
     });
     updateMyRoutes().catch(() => {
     });
+}
+
+function follow(latlon, zoom) {
+    if(!followEnabled) return;
+    map.setView(latlon, zoom, {animate: true});
 }
 
 
@@ -561,6 +588,11 @@ btnCreate.onclick = async () => {
     }
 };
 
+btnFollow.onclick = () => {
+    followEnabled = true;
+    lastUserInteractionTime = Date.now();
+}
+
 
 // Map click: pick points (create mode only)
 
@@ -592,6 +624,10 @@ map.on("click", (ev) => {
     redrawPreview();
 });
 
+map.on("dragstart zoomstart", () => {
+    followEnabled = false;
+    lastUserInteractionTime = Date.now();
+});
 
 //  Init
 

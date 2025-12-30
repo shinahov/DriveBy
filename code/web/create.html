@@ -74,6 +74,31 @@
             margin-top: 6px;
         }
 
+        .nav-btn {
+            position: fixed;
+            bottom: 24px;
+            right: 20px;
+            z-index: 10000;
+
+            padding: 6px 10px;
+            font-size: 13px;
+            font-family: system-ui, sans-serif;
+
+            border: none;
+            border-radius: 6px;
+            background: #f2f2f2;
+            color: #1e88e5;
+
+            cursor: pointer;
+            transition: background 0.2s ease, color 0.2s ease;
+        }
+
+        .nav-btn:hover {
+            background: #e0e0e0;
+            color: #01316a;
+        }
+
+
         button {
             padding: 6px 10px;
             border-radius: 6px;
@@ -90,6 +115,10 @@
 </head>
 <body>
 <div id="map"></div>
+
+<button id="btn-follow" class="nav-btn" hidden>
+    Navigate
+</button>
 
 <div class="panel">
     <div id="msg">Choose agent type.</div>
