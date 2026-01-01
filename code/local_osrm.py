@@ -699,11 +699,11 @@ def start():
     agent_id_to_reqest_id = {}
 
     # walker route once
-    walker_agent_list = create_walkers(walker_start, walker_end, 300, 1)
+    walker_agent_list = create_walkers(walker_start, walker_end, 300, 5)
     # walker = walker_list[0]
     walker_agent = walker_agent_list[0]
 
-    driver_agent_list = create_drivers(start, end, radius_m=1000, count=3)
+    driver_agent_list = create_drivers(start, end, radius_m=1000, count=2)
 
     (matches_sim_list,
      driver_agent_list,

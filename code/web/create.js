@@ -1,4 +1,8 @@
-const map = L.map("map");
+const map = L.map("map", {
+    rotate: true,
+    bearing: 0,
+    rotateControl: true
+});
 
 requestAnimationFrame(() => {
     map.setView([51.2562, 7.1508], 12);
@@ -37,6 +41,33 @@ function onRouteAvailable(points) {
     map.fitBounds(points, {padding: [30, 30]});
 }
 
+// Bearing between two lat/lon points in degrees
+function bearingDeg(a, b) {
+    const [lat1, lon1] = a.map(x => x * Math.PI / 180);
+    const [lat2, lon2] = b.map(x => x * Math.PI / 180);
+
+    const dLon = lon2 - lon1;
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    let brng = Math.atan2(y, x) * 180 / Math.PI;   // -180..180
+    brng = (brng + 360) % 360;                     // 0..360
+    return brng;
+}
+
+// Follow with rotation
+function followWithRotation(centerLatLng, heading, zoom) {
+    if (!followEnabled) return;
+    map.setView(centerLatLng, zoom, {animate: true});
+    map.setBearing(-heading);
+}
+
+// Get heading from route points at index
+function headingFromRoute(points, idx) {
+    if (!Array.isArray(points) || points.length < 2) return 0;
+    const i = Math.max(0, Math.min(idx, points.length - 2));
+    return bearingDeg(points[i], points[i + 1]);
+}
+
 
 // Create-flow state (start/dest picking)
 
@@ -64,6 +95,9 @@ let myLeftoverMarker = null;
 let myWalkerPIdx = null;
 let myWalkerDIdx = null;
 let myDriverIdx = null;
+let driverRoutePoints = null;
+let walkerRoutePoints = null;
+
 
 let myRoutePre = null;
 let myRouteRide = null;
@@ -115,7 +149,9 @@ const destIcon = L.icon({
 
 
 async function fetchJsonNoCache(url) {
-    const res = await fetch(url + "?ts=" + Date.now(), {cache: "no-store"});
+    const res = await fetch(
+        url + "?ts=" + Date.now(),
+        {cache: "no-store"});
     if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
     return await res.json();
 }
@@ -278,8 +314,10 @@ async function updateMyPosition() {
             myWalkerPIdx = Number.isInteger(s.walker.pIdx) ? s.walker.pIdx : 0;
             myWalkerDIdx = Number.isInteger(s.walker.dIdx) ? s.walker.dIdx : 0;
 
-            if(createdKind === "walker"){
-                follow(latlng, 14);
+            if (createdKind === "walker") {
+                const heading = headingFromRoute(
+                    walkerRoutePoints, myDriverIdx);
+                followWithRotation(latlng, heading, 14);
             }
 
         }
@@ -287,13 +325,16 @@ async function updateMyPosition() {
         if (s.driver && typeof s.driver.lat === "number" && typeof s.driver.lon === "number") {
             const latlng = [s.driver.lat, s.driver.lon];
             if (!myDriverMarker) {
-                myDriverMarker = L.marker(latlng, {icon: driverIcon}).addTo(map).bindTooltip("Driver (match)");
+                myDriverMarker = L.marker(latlng, {icon: driverIcon})
+                    .addTo(map).bindTooltip("Driver (match)");
             } else {
                 myDriverMarker.setLatLng(latlng);
             }
             myDriverIdx = Number.isInteger(s.driver.idx) ? s.driver.idx : 0;
-            if(createdKind === "driver"){
-                follow(latlng, 14);
+            if (createdKind === "driver") {
+                const heading = headingFromRoute(
+                    driverRoutePoints, myDriverIdx);
+                followWithRotation(latlng, heading, 14);
             }
         }
 
@@ -355,6 +396,9 @@ async function updateMyRoutes() {
     const w2 = r.walk_from_dropoff?.geometry_latlon;
     const pickup = r.points?.pickup;
     const dropoff = r.points?.dropoff;
+    driverRoutePoints = d;
+    walkerRoutePoints = w1.concat(w2);
+
 
     if (!Array.isArray(d) || !Array.isArray(w1) || !Array.isArray(w2) || !pickup || !dropoff) return;
 
@@ -391,13 +435,18 @@ async function updateMyRoutes() {
     clearPreview();
 
     // Draw new layers
-    myRoutePre = L.polyline(segPre, {weight: 5, opacity: 0.8}).addTo(map).bindTooltip("Driver pre");
-    myRouteRide = L.polyline(segRide, {weight: 6, opacity: 0.9, color: "red"}).addTo(map).bindTooltip("Driver ride");
-    myRoutePost = L.polyline(segPost, {weight: 5, opacity: 0.8}).addTo(map).bindTooltip("Driver post");
+    myRoutePre = L.polyline(segPre, {weight: 5, opacity: 0.8})
+        .addTo(map).bindTooltip("Driver pre");
+    myRouteRide = L.polyline(segRide, {weight: 6, opacity: 0.9, color: "red"})
+        .addTo(map).bindTooltip("Driver ride");
+    myRoutePost = L.polyline(segPost, {weight: 5, opacity: 0.8})
+        .addTo(map).bindTooltip("Driver post");
 
-    myWalkToPickup = L.polyline(segWalkToPickup, {weight: 4, opacity: 0.85, dashArray: "6", color: "green"})
+    myWalkToPickup = L.polyline(segWalkToPickup,
+        {weight: 4, opacity: 0.85, dashArray: "6", color: "green"})
         .addTo(map).bindTooltip("Walk to pickup");
-    myWalkFromDropoff = L.polyline(segWalkFromDropoff, {weight: 4, opacity: 0.85, dashArray: "6", color: "green"})
+    myWalkFromDropoff = L.polyline(segWalkFromDropoff,
+        {weight: 4, opacity: 0.85, dashArray: "6", color: "green"})
         .addTo(map).bindTooltip("Walk from dropoff");
 
     if (!myPickup) {
@@ -466,7 +515,7 @@ function startViewLoops() {
 }
 
 function follow(latlon, zoom) {
-    if(!followEnabled) return;
+    if (!followEnabled) return;
     map.setView(latlon, zoom, {animate: true});
 }
 
