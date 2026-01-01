@@ -41,6 +41,20 @@ function onRouteAvailable(points) {
     map.fitBounds(points, {padding: [30, 30]});
 }
 
+function haversineM(a, b) {
+    const R = 6371000;
+    const toRad = x => x * Math.PI / 180;
+    const lat1 = toRad(a[0]), lon1 = toRad(a[1]);
+    const lat2 = toRad(b[0]), lon2 = toRad(b[1]);
+
+    const dLat = lat2 - lat1;
+    const dLon = lon2 - lon1;
+    const s1 = Math.sin(dLat/2), s2 = Math.sin(dLon/2);
+    const h = s1*s1 + Math.cos(lat1)*Math.cos(lat2)*s2*s2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+
 // Bearing between two lat/lon points in degrees
 function bearingDeg(a, b) {
     const [lat1, lon1] = a.map(x => x * Math.PI / 180);
@@ -77,12 +91,29 @@ function followWithRotation(centerLatLng, heading, zoom) {
     setSmoothBearing(heading);
 }
 
-// Get heading from route points at index
-function headingFromRoute(points, idx) {
-    if (!Array.isArray(points) || points.length < 2) return 0;
-    const i = Math.max(0, Math.min(idx, points.length - 2));
-    return bearingDeg(points[i], points[i + 1]);
+// Get heading and length of segment starting at points[idx]
+function headingAndSegLen(points, idx, lookAhead = 5) {
+    if (!Array.isArray(points) || points.length < 2) return { heading: 0, segLenM: 0 };
+
+    const i0 = Math.max(0, Math.min(idx, points.length - 2));
+    const i1 = Math.min(points.length - 1, i0 + Math.max(1, lookAhead));
+
+    const p0 = points[i0];
+    const p1 = points[i1];
+
+    return {
+        heading: bearingDeg(p0, p1),
+        segLenM: haversineM(p0, p1)
+    };
 }
+
+function zoomFromSegLen(segLenM) {
+    const d = Math.max(10, Math.min(200, segLenM));
+    const z = 18 - (d - 10) * (3 / (200 - 10));
+    return Math.max(15, Math.min(18, z));
+}
+
+
 
 
 
@@ -334,9 +365,10 @@ async function updateMyPosition() {
             myWalkerDIdx = Number.isInteger(s.walker.dIdx) ? s.walker.dIdx : 0;
 
             if (createdKind === "walker") {
-                const heading = headingFromRoute(
-                    walkerRoutePoints, myDriverIdx);
-                followWithRotation(latlng, heading, 14);
+                const { heading, segLenM } =
+                    headingAndSegLen(walkerRoutePoints, myWalkerPIdx, 5);
+                const zoom = zoomFromSegLen(segLenM);
+                followWithRotation(latlng, heading, zoom);
             }
 
         }
@@ -351,9 +383,10 @@ async function updateMyPosition() {
             }
             myDriverIdx = Number.isInteger(s.driver.idx) ? s.driver.idx : 0;
             if (createdKind === "driver") {
-                const heading = headingFromRoute(
-                    driverRoutePoints, myDriverIdx);
-                followWithRotation(latlng, heading, 14);
+                const { heading, segLenM } =
+                    headingAndSegLen(driverRoutePoints, myDriverIdx, 5);
+                const zoom = zoomFromSegLen(segLenM);
+                followWithRotation(latlng, heading, zoom);
             }
         }
 
