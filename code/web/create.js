@@ -54,11 +54,27 @@ function bearingDeg(a, b) {
     return brng;
 }
 
+
+function lerpAngle(a, b, t) {
+    let delta = (b - a + 540) % 360 - 180;
+    return (a + delta * t + 360) % 360;
+}
+
+function setSmoothBearing(targetBearing) {
+    const now = Date.now();
+    const dt = (now - lastBearingUpdateTime) / 1000; // seconds
+    lastBearingUpdateTime = now;
+
+    const t = Math.min(dt , 1); // smoothing factor
+    smoothBearing = lerpAngle(smoothBearing, targetBearing, t);
+    map.setBearing(-smoothBearing);
+}
+
 // Follow with rotation
 function followWithRotation(centerLatLng, heading, zoom) {
     if (!followEnabled) return;
     map.setView(centerLatLng, zoom, {animate: true});
-    map.setBearing(-heading);
+    setSmoothBearing(heading);
 }
 
 // Get heading from route points at index
@@ -67,6 +83,7 @@ function headingFromRoute(points, idx) {
     const i = Math.max(0, Math.min(idx, points.length - 2));
     return bearingDeg(points[i], points[i + 1]);
 }
+
 
 
 // Create-flow state (start/dest picking)
@@ -115,6 +132,8 @@ let routesTimer = null;
 // Navigation variables
 let followEnabled = false;
 let lastUserInteractionTime = 0;
+let smoothBearing = 0;
+let lastBearingUpdateTime = 0;
 
 
 // Helpers: fetching without cache
