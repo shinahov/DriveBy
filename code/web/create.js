@@ -41,6 +41,8 @@ function onRouteAvailable(points) {
     map.fitBounds(points, {padding: [30, 30]});
 }
 
+
+// Haversine distance between two lat/lon points in meters
 function haversineM(a, b) {
     const R = 6371000;
     const toRad = x => x * Math.PI / 180;
@@ -49,8 +51,8 @@ function haversineM(a, b) {
 
     const dLat = lat2 - lat1;
     const dLon = lon2 - lon1;
-    const s1 = Math.sin(dLat/2), s2 = Math.sin(dLon/2);
-    const h = s1*s1 + Math.cos(lat1)*Math.cos(lat2)*s2*s2;
+    const s1 = Math.sin(dLat / 2), s2 = Math.sin(dLon / 2);
+    const h = s1 * s1 + Math.cos(lat1) * Math.cos(lat2) * s2 * s2;
     return 2 * R * Math.asin(Math.sqrt(h));
 }
 
@@ -74,26 +76,71 @@ function lerpAngle(a, b, t) {
     return (a + delta * t + 360) % 360;
 }
 
+
+// Smoothly set bearing
 function setSmoothBearing(targetBearing) {
     const now = Date.now();
     const dt = (now - lastBearingUpdateTime) / 1000; // seconds
     lastBearingUpdateTime = now;
 
-    const t = Math.min(dt , 1); // smoothing factor
+    const t = Math.min(dt, 1); // smoothing factor
     smoothBearing = lerpAngle(smoothBearing, targetBearing, t);
     map.setBearing(-smoothBearing);
 }
 
-// Follow with rotation
+let zoomOld = null;
+let flying = false;
+let pendingCenter = null;
+let lastPanTs = 0;
+
+map.on("moveend", () => {
+    if (!flying) return;
+    flying = false;
+
+    // Apply the latest queued center after flyTo finishes
+    if (pendingCenter) {
+        map.panTo(pendingCenter, {animate: true, duration: 0.25});
+        pendingCenter = null;
+    }
+});
+
 function followWithRotation(centerLatLng, heading, zoom) {
     if (!followEnabled) return;
-    map.setView(centerLatLng, zoom, {animate: true});
+
     setSmoothBearing(heading);
+
+    // While flyTo runs, do not interrupt it; only remember the latest center
+    if (flying) {
+        pendingCenter = centerLatLng;
+        return;
+    }
+
+    if (zoom !== zoomOld) {
+        zoomOld = zoom;
+        flying = true;
+        pendingCenter = centerLatLng;
+
+        map.flyTo(centerLatLng, zoom, {
+            animate: true,
+            duration: 2,
+            easeLinearity: 0.5,
+            noMoveStart: true
+        });
+        return;
+    }
+
+    // Pan updates, throttled to avoid spamming animations
+    const now = performance.now();
+    if (now - lastPanTs < 120) return;
+    lastPanTs = now;
+
+    map.panTo(centerLatLng, {animate: true, duration: 0.25});
 }
+
 
 // Get heading and length of segment starting at points[idx]
 function headingAndSegLen(points, idx, lookAhead = 5) {
-    if (!Array.isArray(points) || points.length < 2) return { heading: 0, segLenM: 0 };
+    if (!Array.isArray(points) || points.length < 2) return {heading: 0, segLenM: 0};
 
     const i0 = Math.max(0, Math.min(idx, points.length - 2));
     const i1 = Math.min(points.length - 1, i0 + Math.max(1, lookAhead));
@@ -108,13 +155,30 @@ function headingAndSegLen(points, idx, lookAhead = 5) {
 }
 
 function zoomFromSegLen(segLenM) {
-    const d = Math.max(10, Math.min(200, segLenM));
-    const z = 18 - (d - 10) * (3 / (200 - 10));
-    return Math.max(15, Math.min(18, z));
+    const d = Math.max(5, Math.min(300, segLenM));
+
+    // Hysteresis thresholds (meters)
+    // 20 <-> 17
+    const ENTER_20 = 18, EXIT_20 = 26;
+    // 17 <-> 16
+    const ENTER_17 = 55, EXIT_17 = 75;
+    // 16 <-> 15
+    const ENTER_16 = 140, EXIT_16 = 180;
+
+    if (zoomMode === 0) {                 // currently 20
+        if (d > EXIT_20) zoomMode = 1;
+    } else if (zoomMode === 1) {          // currently 17
+        if (d < ENTER_20) zoomMode = 0;
+        else if (d > EXIT_17) zoomMode = 2;
+    } else if (zoomMode === 2) {          // currently 16
+        if (d < ENTER_17) zoomMode = 1;
+        else if (d > EXIT_16) zoomMode = 3;
+    } else {                              // currently 15
+        if (d < ENTER_16) zoomMode = 2;
+    }
+
+    return [20, 17, 16, 15][zoomMode];
 }
-
-
-
 
 
 // Create-flow state (start/dest picking)
@@ -165,6 +229,7 @@ let followEnabled = false;
 let lastUserInteractionTime = 0;
 let smoothBearing = 0;
 let lastBearingUpdateTime = 0;
+let zoomMode = 2;
 
 
 // Helpers: fetching without cache
@@ -365,8 +430,8 @@ async function updateMyPosition() {
             myWalkerDIdx = Number.isInteger(s.walker.dIdx) ? s.walker.dIdx : 0;
 
             if (createdKind === "walker") {
-                const { heading, segLenM } =
-                    headingAndSegLen(walkerRoutePoints, myWalkerPIdx, 5);
+                const {heading, segLenM} =
+                    headingAndSegLen(walkerRoutePoints, myWalkerPIdx, 10);
                 const zoom = zoomFromSegLen(segLenM);
                 followWithRotation(latlng, heading, zoom);
             }
@@ -383,7 +448,7 @@ async function updateMyPosition() {
             }
             myDriverIdx = Number.isInteger(s.driver.idx) ? s.driver.idx : 0;
             if (createdKind === "driver") {
-                const { heading, segLenM } =
+                const {heading, segLenM} =
                     headingAndSegLen(driverRoutePoints, myDriverIdx, 5);
                 const zoom = zoomFromSegLen(segLenM);
                 followWithRotation(latlng, heading, zoom);
@@ -725,7 +790,7 @@ map.on("click", (ev) => {
     redrawPreview();
 });
 
-map.on("dragstart zoomstart", () => {
+map.on("dragstart", () => {
     followEnabled = false;
     lastUserInteractionTime = Date.now();
 });
