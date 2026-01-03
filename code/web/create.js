@@ -25,6 +25,22 @@ const btnConfirm = document.getElementById("btn-confirm");
 const btnCreate = document.getElementById("btn-create");
 const btnCancel = document.getElementById("btn-cancel");
 const btnFollow = document.getElementById("btn-follow");
+const btnStopFollow = document.getElementById("btn-stop-follow");
+
+function showFollowButtons() {
+    btnFollow.hidden = false;
+    btnStopFollow.hidden = true;
+}
+
+function showStopButton() {
+    btnFollow.hidden = true;
+    btnStopFollow.hidden = false;
+}
+
+function hideFollowButtons() {
+    btnFollow.hidden = true;
+    btnStopFollow.hidden = true;
+}
 
 function setMsg(s) {
     msgEl.textContent = s;
@@ -97,96 +113,95 @@ let desiredZoom = null;
 let flyToCalls = 0;
 
 function onFlyFinished() {
-  flying = false;
+    flying = false;
 
-  // Apply last pending request once (latest-wins)
-  if (pendingCenter || pendingZoom !== null) {
-    const c = pendingCenter || map.getCenter();
-    const z = (pendingZoom !== null) ? pendingZoom : map.getZoom();
+    // Apply last pending request once (latest-wins)
+    if (pendingCenter || pendingZoom !== null) {
+        const c = pendingCenter || map.getCenter();
+        const z = (pendingZoom !== null) ? pendingZoom : map.getZoom();
 
-    pendingCenter = null;
-    pendingZoom = null;
+        pendingCenter = null;
+        pendingZoom = null;
 
-    // Re-enter follow logic once with latest target
-    // (we call flyTo/panTo exactly once)
-    const curZ = map.getZoom();
-    const needZoom = Math.abs(curZ - z) > 0.5;
+        // Re-enter follow logic once with latest target
+        // (we call flyTo/panTo exactly once)
+        const curZ = map.getZoom();
+        const needZoom = Math.abs(curZ - z) > 0.5;
 
-    if (needZoom) {
-      flyToCalls++;
-      console.log("[FOLLOW] flyTo (pending)", { flyToCalls, z, curZ });
+        if (needZoom) {
+            flyToCalls++;
+            console.log("[FOLLOW] flyTo (pending)", {flyToCalls, z, curZ});
 
-      zoomOld = z;
-      flying = true;
-      map.once("moveend", onFlyFinished);
+            zoomOld = z;
+            flying = true;
+            map.once("moveend", onFlyFinished);
 
-      map.flyTo(c, z, {
-        animate: true,
-        duration: 1.2,
-        easeLinearity: 0.5
-      });
-    } else {
-      // just pan after fly finished
-      map.panTo(c, { animate: true, duration: 0.25 });
+            map.flyTo(c, z, {
+                animate: true,
+                duration: 1.2,
+                easeLinearity: 0.5
+            });
+        } else {
+            // just pan after fly finished
+            map.panTo(c, {animate: true, duration: 0.25});
+        }
     }
-  }
 }
 
 function followWithRotation(centerLatLng, heading, zoom) {
-  if (!followEnabled) return;
-  lastFollowTick = Date.now();
+    if (!followEnabled) return;
+    lastFollowTick = Date.now();
 
-  desiredZoom = zoom;
+    desiredZoom = zoom;
 
-  const currentMapZoom = map.getZoom();
+    const currentMapZoom = map.getZoom();
 
-  console.log("[FOLLOW] tick", {
-    desiredZoom: zoom,
-    currentMapZoom,
-    zoomOld,
-    flying
-  });
-
-  setSmoothBearing(heading);
-
-  // If a fly is running, store the latest request and exit
-  if (flying) {
-    pendingCenter = centerLatLng;
-    pendingZoom = zoom;
-    return;
-  }
-
-  const needZoom = (zoomOld === null) || (Math.abs(currentMapZoom - zoom) > 0.5);
-
-  if (needZoom) {
-    flyToCalls++;
-    console.log("[FOLLOW] flyTo", { flyToCalls, zoom, zoomOld, currentMapZoom });
-
-    zoomOld = zoom;
-    flying = true;
-
-    // Ensure we always end flying
-    map.once("moveend", onFlyFinished);
-
-    map.flyTo(centerLatLng, zoom, {
-      animate: true,
-      duration: 1.5,
-      easeLinearity: 0.5
+    console.log("[FOLLOW] tick", {
+        desiredZoom: zoom,
+        currentMapZoom,
+        zoomOld,
+        flying
     });
-    return;
-  }
 
-  // Normal follow: pan only
-  pendingCenter = null;
-  pendingZoom = null;
+    setSmoothBearing(heading);
 
-  map.panTo(centerLatLng, { animate: true, duration: 0.25 });
+    // If a fly is running, store the latest request and exit
+    if (flying) {
+        pendingCenter = centerLatLng;
+        pendingZoom = zoom;
+        return;
+    }
+
+    const needZoom = (zoomOld === null) || (Math.abs(currentMapZoom - zoom) > 0.5);
+
+    if (needZoom) {
+        flyToCalls++;
+        console.log("[FOLLOW] flyTo", {flyToCalls, zoom, zoomOld, currentMapZoom});
+
+        zoomOld = zoom;
+        flying = true;
+
+        // Ensure we always end flying
+        map.once("moveend", onFlyFinished);
+
+        map.flyTo(centerLatLng, zoom, {
+            animate: true,
+            duration: 1.5,
+            easeLinearity: 0.5
+        });
+        return;
+    }
+
+    // Normal follow: pan only
+    pendingCenter = null;
+    pendingZoom = null;
+
+    map.panTo(centerLatLng, {animate: true, duration: 0.25});
 }
 
 map.on("zoomend", () => {
-  console.log("[MAP] zoomend real=", map.getZoom(), "desired=", desiredZoom);
+    console.log("[MAP] zoomend real=", map.getZoom(), "desired=", desiredZoom);
 });
-
 
 
 // Get heading and length of segment starting at points[idx]
@@ -529,7 +544,8 @@ async function updateMyPosition() {
         if (s.walker && typeof s.walker.lat === "number" && typeof s.walker.lon === "number") {
             const latlng = [s.walker.lat, s.walker.lon];
             if (!myWalkerMarker) {
-                myWalkerMarker = L.marker(latlng, {icon: walkerIcon}).addTo(map).bindTooltip("Walker (match)");
+                myWalkerMarker = L.marker(latlng, {icon: walkerIcon})
+                    .addTo(map).bindTooltip("Walker (match)");
             } else {
                 myWalkerMarker.setLatLng(latlng);
             }
@@ -589,7 +605,8 @@ async function updateMyPosition() {
 
         const latlng = [a.lat, a.lon];
         if (!myLeftoverMarker) {
-            myLeftoverMarker = L.circleMarker(latlng, {radius: 9, weight: 2, fillOpacity: 1}).addTo(map)
+            myLeftoverMarker = L.circleMarker(latlng,
+                {radius: 9, weight: 2, fillOpacity: 1}).addTo(map)
                 .bindTooltip("Your agent (unmatched)");
             map.setView(latlng, 14);
         } else {
@@ -626,24 +643,33 @@ async function updateMyRoutes() {
     walkerRoutePoints = w1.concat(w2);
 
 
-    if (!Array.isArray(d) || !Array.isArray(w1) || !Array.isArray(w2) || !pickup || !dropoff) return;
+    if (!Array.isArray(d) ||
+        !Array.isArray(w1) ||
+        !Array.isArray(w2) ||
+        !pickup || !dropoff) return;
 
     const iPick = r.idx?.pickup;
     const iDrop = r.idx?.dropoff;
-    if (!Number.isInteger(iPick) || !Number.isInteger(iDrop)) return;
+    if (!Number.isInteger(iPick) ||
+        !Number.isInteger(iDrop)) return;
 
     const a = Math.min(iPick, iDrop);
     const b = Math.max(iPick, iDrop);
 
-    const dIdx = Number.isInteger(myDriverIdx) ? myDriverIdx : 0; // i dont why ist only works if i do this
-    const walkerpickIdx = Number.isInteger(myWalkerPIdx) ? myWalkerPIdx : 0;
-    const walkerdropIdx = Number.isInteger(myWalkerDIdx) ? myWalkerDIdx : 0;
+    const dIdx =
+        Number.isInteger(myDriverIdx) ? myDriverIdx : 0; // i dont why ist only works if i do this
+    const walkerpickIdx =
+        Number.isInteger(myWalkerPIdx) ? myWalkerPIdx : 0;
+    const walkerdropIdx =
+        Number.isInteger(myWalkerDIdx) ? myWalkerDIdx : 0;
 
     const segPre = sliceInclusive(d, dIdx, a);
     const segRide = sliceInclusive(d, Math.max(dIdx, a), b);
     const segPost = sliceInclusive(d, Math.max(dIdx, b), d.length - 1);
-    const segWalkToPickup = sliceInclusive(w1, walkerpickIdx, w1.length - 1);
-    const segWalkFromDropoff = sliceInclusive(w2, Math.max(walkerdropIdx, 0), w2.length - 1);
+    const segWalkToPickup = sliceInclusive(
+        w1, walkerpickIdx, w1.length - 1);
+    const segWalkFromDropoff = sliceInclusive(
+        w2, Math.max(walkerdropIdx, 0), w2.length - 1);
 
     const all = d.concat(w1, w2);
 
@@ -719,7 +745,7 @@ function startViewLoops() {
     btnDriver.disabled = true;
     btnConfirm.disabled = true;
     btnCreate.disabled = true;
-    btnFollow.hidden = false;
+    showFollowButtons();
 
     // Positions update: frequent
     posTimer = setInterval(() => {
@@ -738,11 +764,6 @@ function startViewLoops() {
     });
     updateMyRoutes().catch(() => {
     });
-}
-
-function follow(latlon, zoom) {
-    if (!followEnabled) return;
-    map.setView(latlon, zoom, {animate: true});
 }
 
 
@@ -866,13 +887,24 @@ btnCreate.onclick = async () => {
 btnFollow.onclick = () => {
     followEnabled = true;
     lastUserInteractionTime = Date.now();
-    zoomOld = null; // force zoom update
+    zoomOld = null;
     flying = false;
     pendingCenter = null;
-    //btnFollow.hidden = true;
+    pendingZoom = null;
     lastZoomChangeMs = 0;
     zoomMode = 0;
-}
+
+    showStopButton();
+};
+
+btnStopFollow.onclick = () => {
+    followEnabled = false;
+    flying = false;
+    pendingCenter = null;
+    pendingZoom = null;
+
+    showFollowButtons();
+};
 
 
 // Map click: pick points (create mode only)
@@ -905,31 +937,33 @@ map.on("click", (ev) => {
     redrawPreview();
 });
 
+
+// dont work since leaflet cannot distinguish programmatic vs user-initiated events
 map.on("dragstart", (e) => {
-  if (!e?.originalEvent) return;       // ignore programmatic
-  followEnabled = false;
-  lastUserInteractionTime = Date.now();
-  console.log("[FOLLOW] OFF by USER drag");
+    if (!e?.originalEvent) return;       // ignore programmatic
+    followEnabled = false;
+    lastUserInteractionTime = Date.now();
+    console.log("[FOLLOW] OFF by USER drag");
 });
 
 map.on("zoomstart", (e) => {
-  if (!e?.originalEvent) return;       // ignore programmatic
-  followEnabled = false;
-  lastUserInteractionTime = Date.now();
-  console.log("[FOLLOW] OFF by USER zoom");
+    if (!e?.originalEvent) return;       // ignore programmatic
+    followEnabled = false;
+    lastUserInteractionTime = Date.now();
+    console.log("[FOLLOW] OFF by USER zoom");
 });
 
 
 let lastFollowTick = 0;
 
 setInterval(() => {
-  console.log("[WD]", {
-    followEnabled,
-    flying,
-    zoom: map.getZoom(),
-    hasPending: !!pendingCenter || pendingZoom !== null,
-    secondsSinceTick: ((Date.now() - lastFollowTick)/1000).toFixed(1)
-  });
+    console.log("[WD]", {
+        followEnabled,
+        flying,
+        zoom: map.getZoom(),
+        hasPending: !!pendingCenter || pendingZoom !== null,
+        secondsSinceTick: ((Date.now() - lastFollowTick) / 1000).toFixed(1)
+    });
 }, 2000);
 
 
