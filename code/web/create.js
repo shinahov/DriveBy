@@ -13,6 +13,7 @@ map.whenReady(() => map.invalidateSize(true));
 
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
+    maxNativeZoom: 19,
     attribution: "&copy; OpenStreetMap contributors"
 }).addTo(map);
 
@@ -88,54 +89,104 @@ function setSmoothBearing(targetBearing) {
     map.setBearing(-smoothBearing);
 }
 
-let zoomOld = null;
 let flying = false;
 let pendingCenter = null;
-let lastPanTs = 0;
+let pendingZoom = null;
 
-map.on("moveend", () => {
-    if (!flying) return;
-    flying = false;
+let desiredZoom = null;
+let flyToCalls = 0;
 
-    // Apply the latest queued center after flyTo finishes
-    if (pendingCenter) {
-        map.panTo(pendingCenter, {animate: true, duration: 0.25});
-        pendingCenter = null;
+function onFlyFinished() {
+  flying = false;
+
+  // Apply last pending request once (latest-wins)
+  if (pendingCenter || pendingZoom !== null) {
+    const c = pendingCenter || map.getCenter();
+    const z = (pendingZoom !== null) ? pendingZoom : map.getZoom();
+
+    pendingCenter = null;
+    pendingZoom = null;
+
+    // Re-enter follow logic once with latest target
+    // (we call flyTo/panTo exactly once)
+    const curZ = map.getZoom();
+    const needZoom = Math.abs(curZ - z) > 0.5;
+
+    if (needZoom) {
+      flyToCalls++;
+      console.log("[FOLLOW] flyTo (pending)", { flyToCalls, z, curZ });
+
+      zoomOld = z;
+      flying = true;
+      map.once("moveend", onFlyFinished);
+
+      map.flyTo(c, z, {
+        animate: true,
+        duration: 1.2,
+        easeLinearity: 0.5
+      });
+    } else {
+      // just pan after fly finished
+      map.panTo(c, { animate: true, duration: 0.25 });
     }
-});
+  }
+}
 
 function followWithRotation(centerLatLng, heading, zoom) {
-    if (!followEnabled) return;
+  if (!followEnabled) return;
+  lastFollowTick = Date.now();
 
-    setSmoothBearing(heading);
+  desiredZoom = zoom;
 
-    // While flyTo runs, do not interrupt it; only remember the latest center
-    if (flying) {
-        pendingCenter = centerLatLng;
-        return;
-    }
+  const currentMapZoom = map.getZoom();
 
-    if (zoom !== zoomOld) {
-        zoomOld = zoom;
-        flying = true;
-        pendingCenter = centerLatLng;
+  console.log("[FOLLOW] tick", {
+    desiredZoom: zoom,
+    currentMapZoom,
+    zoomOld,
+    flying
+  });
 
-        map.flyTo(centerLatLng, zoom, {
-            animate: true,
-            duration: 2,
-            easeLinearity: 0.5,
-            noMoveStart: true
-        });
-        return;
-    }
+  setSmoothBearing(heading);
 
-    // Pan updates, throttled to avoid spamming animations
-    const now = performance.now();
-    if (now - lastPanTs < 120) return;
-    lastPanTs = now;
+  // If a fly is running, store the latest request and exit
+  if (flying) {
+    pendingCenter = centerLatLng;
+    pendingZoom = zoom;
+    return;
+  }
 
-    map.panTo(centerLatLng, {animate: true, duration: 0.25});
+  const needZoom = (zoomOld === null) || (Math.abs(currentMapZoom - zoom) > 0.5);
+
+  if (needZoom) {
+    flyToCalls++;
+    console.log("[FOLLOW] flyTo", { flyToCalls, zoom, zoomOld, currentMapZoom });
+
+    zoomOld = zoom;
+    flying = true;
+
+    // Ensure we always end flying
+    map.once("moveend", onFlyFinished);
+
+    map.flyTo(centerLatLng, zoom, {
+      animate: true,
+      duration: 1.5,
+      easeLinearity: 0.5
+    });
+    return;
+  }
+
+  // Normal follow: pan only
+  pendingCenter = null;
+  pendingZoom = null;
+
+  map.panTo(centerLatLng, { animate: true, duration: 0.25 });
 }
+
+map.on("zoomend", () => {
+  console.log("[MAP] zoomend real=", map.getZoom(), "desired=", desiredZoom);
+});
+
 
 
 // Get heading and length of segment starting at points[idx]
@@ -148,36 +199,92 @@ function headingAndSegLen(points, idx, lookAhead = 5) {
     const p0 = points[i0];
     const p1 = points[i1];
 
+    let sumLen = 0;
+    for (let i = i0; i < i1; i++) {
+        sumLen += haversineM(points[i], points[i + 1]);
+    }
+
     return {
         heading: bearingDeg(p0, p1),
-        segLenM: haversineM(p0, p1)
+        segLenM: sumLen
     };
 }
 
-function zoomFromSegLen(segLenM) {
-    const d = Math.max(5, Math.min(300, segLenM));
+// Needs: map maxZoom >= 22 (tile layer must support it)
 
-    // Hysteresis thresholds (meters)
-    // 20 <-> 17
-    const ENTER_20 = 18, EXIT_20 = 26;
-    // 17 <-> 16
-    const ENTER_17 = 55, EXIT_17 = 75;
-    // 16 <-> 15
-    const ENTER_16 = 140, EXIT_16 = 180;
+let lastZoomChangeMs = 0;
 
-    if (zoomMode === 0) {                 // currently 20
-        if (d > EXIT_20) zoomMode = 1;
-    } else if (zoomMode === 1) {          // currently 17
-        if (d < ENTER_20) zoomMode = 0;
-        else if (d > EXIT_17) zoomMode = 2;
-    } else if (zoomMode === 2) {          // currently 16
-        if (d < ENTER_17) zoomMode = 1;
-        else if (d > EXIT_16) zoomMode = 3;
-    } else {                              // currently 15
-        if (d < ENTER_16) zoomMode = 2;
+
+function logZoomMessage(text) {
+    const el = document.getElementById("zoom-msg");
+    if (!el) return;
+
+    el.textContent = text;
+    el.style.opacity = "1";
+
+    // auto-fade
+    setTimeout(() => {
+        el.style.opacity = "0.6";
+    }, 1200);
+}
+
+function updateZoomModeBySegLen(segLenM) {
+    const d = Math.max(5, Math.min(400, segLenM));
+
+    const ZOOMS = [19, 18, 17, 16, 15, 14, 13];
+
+    // Very wide hysteresis bands → stable
+    const ENTER = [
+        -Infinity,
+        12,
+        20,
+        35,
+        60,
+        100,
+        160
+    ];
+
+    const EXIT = [
+        25,
+        40,
+        65,
+        100,
+        150,
+        220,
+        Infinity
+    ];
+
+    const now = (
+        typeof performance !== "undefined" ? performance.now() : Date.now());
+    const COOLDOWN_MS = 900;
+
+    if (now - lastZoomChangeMs < COOLDOWN_MS) {
+        return ZOOMS[zoomMode];
     }
 
-    return [20, 17, 16, 15][zoomMode];
+    const prevMode = zoomMode;
+    const prevZoom = ZOOMS[prevMode];
+
+    if (d > EXIT[zoomMode] && zoomMode < ZOOMS.length - 1) {
+        zoomMode++;
+    } else if (d < ENTER[zoomMode] && zoomMode > 0) {
+        zoomMode--;
+    }
+
+    if (zoomMode !== prevMode) {
+        lastZoomChangeMs = now;
+        const newZoom = ZOOMS[zoomMode];
+
+        logZoomMessage(
+            `Zoom ${prevZoom} → ${newZoom} | segLen ${d.toFixed(1)} m`
+        );
+    }
+
+    return ZOOMS[zoomMode];
+}
+
+function zoomFromSegLen(segLenM) {
+    return updateZoomModeBySegLen(segLenM);
 }
 
 
@@ -513,6 +620,8 @@ async function updateMyRoutes() {
     const w2 = r.walk_from_dropoff?.geometry_latlon;
     const pickup = r.points?.pickup;
     const dropoff = r.points?.dropoff;
+    if (!Array.isArray(d) || !Array.isArray(w1) || !Array.isArray(w2)) return;
+    if (!Array.isArray(pickup) || !Array.isArray(dropoff)) return;
     driverRoutePoints = d;
     walkerRoutePoints = w1.concat(w2);
 
@@ -757,6 +866,12 @@ btnCreate.onclick = async () => {
 btnFollow.onclick = () => {
     followEnabled = true;
     lastUserInteractionTime = Date.now();
+    zoomOld = null; // force zoom update
+    flying = false;
+    pendingCenter = null;
+    //btnFollow.hidden = true;
+    lastZoomChangeMs = 0;
+    zoomMode = 0;
 }
 
 
@@ -790,10 +905,33 @@ map.on("click", (ev) => {
     redrawPreview();
 });
 
-map.on("dragstart", () => {
-    followEnabled = false;
-    lastUserInteractionTime = Date.now();
+map.on("dragstart", (e) => {
+  if (!e?.originalEvent) return;       // ignore programmatic
+  followEnabled = false;
+  lastUserInteractionTime = Date.now();
+  console.log("[FOLLOW] OFF by USER drag");
 });
+
+map.on("zoomstart", (e) => {
+  if (!e?.originalEvent) return;       // ignore programmatic
+  followEnabled = false;
+  lastUserInteractionTime = Date.now();
+  console.log("[FOLLOW] OFF by USER zoom");
+});
+
+
+let lastFollowTick = 0;
+
+setInterval(() => {
+  console.log("[WD]", {
+    followEnabled,
+    flying,
+    zoom: map.getZoom(),
+    hasPending: !!pendingCenter || pendingZoom !== null,
+    secondsSinceTick: ((Date.now() - lastFollowTick)/1000).toFixed(1)
+  });
+}, 2000);
+
 
 //  Init
 

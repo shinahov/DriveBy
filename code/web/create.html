@@ -32,6 +32,21 @@
             border-radius: 6px;
         }
 
+        #zoom-msg {
+            position: fixed;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.75);
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            pointer-events: none;
+            z-index: 9999;
+            transition: opacity 0.3s;
+        }
+
         .panel {
             position: fixed;
             top: 16px;
@@ -134,6 +149,8 @@
         <button id="btn-cancel">Cancel</button>
     </div>
 </div>
+
+<div id="zoom-msg"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

@@ -743,8 +743,8 @@ def start():
     min_saving_m = 800.0
     agent_id_to_request_id: dict[str, str] = {}
 
-    walker_agent_list = create_walkers(walker_start, walker_end, 300, 30)
-    driver_agent_list = create_drivers(start_pt, end_pt, radius_m=1000, count=40)
+    walker_agent_list = create_walkers(walker_start, walker_end, 300, 6)
+    driver_agent_list = create_drivers(start_pt, end_pt, radius_m=1000, count=1)
 
     matches_sim_list, driver_agent_list, walker_agent_list = create_matches(
         driver_agent_list, walker_agent_list, now_t=0.0, min_saving_m=min_saving_m
