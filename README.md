@@ -12,6 +12,15 @@ Think of it as an “Uber-like” map app, but with a different main idea:
 
 So the driver does not fully replace walking — the goal is to reduce walking time/distance by inserting a “ride segment” into the walker’s trip.
 
+### Route matching (pickup & dropoff)
+![Route matching with pickup](images/pickup.png)
+
+### Navigation view (live zoom & following)
+![Navigation view](images/map-navigation.png)
+
+### Simulation overview (multiple agents)
+![Simulation overview](images/simulation-view.png)
+
 ## What’s implemented right now
 - Uses **OSRM** to fetch routes:
   - driving routes for drivers
