@@ -238,25 +238,41 @@ map.on("zoomend", () => {
 
 
 // Get heading and length of segment starting at points[idx]
-function headingAndSegLen(points, idx, lookAhead = 5) {
-    if (!Array.isArray(points) || points.length < 2) return {heading: 0, segLenM: 0};
-
-    const i0 = Math.max(0, Math.min(idx, points.length - 2));
-    const i1 = Math.min(points.length - 1, i0 + Math.max(1, lookAhead));
-
-    const p0 = points[i0];
-    const p1 = points[i1];
-
-    let sumLen = 0;
-    for (let i = i0; i < i1; i++) {
-        sumLen += haversineM(points[i], points[i + 1]);
+function headingAndSegLens(points, idx, shortLook = 8, longLook = 50) {
+    if (!Array.isArray(points) || points.length < 2) {
+        return {
+            heading: 0,
+            segShortM: 0,
+            segLongM: 0
+        };
     }
 
+    const i0 = Math.max(0, Math.min(idx, points.length - 2));
+
+    // short lookahead (local / maneuver)
+    const iShort = Math.min(points.length - 1, i0 + Math.max(1, shortLook));
+    let segShortM = 0;
+    for (let i = i0; i < iShort; i++) {
+        segShortM += haversineM(points[i], points[i + 1]);
+    }
+
+    // long lookahead (global / context)
+    const iLong = Math.min(points.length - 1, i0 + Math.max(1, longLook));
+    let segLongM = 0;
+    for (let i = i0; i < iLong; i++) {
+        segLongM += haversineM(points[i], points[i + 1]);
+    }
+
+    // Heading always from immediate direction (stable + responsive)
+    const heading = bearingDeg(points[i0], points[Math.min(i0 + 1, points.length - 1)]);
+
     return {
-        heading: bearingDeg(p0, p1),
-        segLenM: sumLen
+        heading,      // direction of travel
+        segShortM,    // short / local segment length (maneuver)
+        segLongM      // long / global segment length (context)
     };
 }
+
 
 // Needs: map maxZoom >= 22 (tile layer must support it)
 
@@ -276,63 +292,59 @@ function logZoomMessage(text) {
     }, 1200);
 }
 
-function updateZoomModeBySegLen(segLenM) {
-    const d = Math.max(5, Math.min(400, segLenM));
+function updateZoomModeDual(segShortM, segLongM) {
+  const dL = Math.max(5, Math.min(400, segLongM));
+  const dS = Math.max(5, Math.min(400, segShortM));
 
-    const ZOOMS = [19, 18, 17, 16, 15, 14, 13];
+  const ZOOMS = [20, 19, 18, 16];
 
-    // Very wide hysteresis bands → stable
-    const ENTER = [
-        -Infinity,
-        12,
-        20,
-        35,
-        60,
-        100,
-        160
-    ];
+  // thresholds based on LONG (stable)
+  const ENTER_L = [-Infinity, 30, 80, 170];
+  const EXIT_L  = [60,        120, 220, Infinity];
 
-    const EXIT = [
-        25,
-        40,
-        65,
-        100,
-        150,
-        220,
-        Infinity
-    ];
+  // maneuver override based on SHORT (only zoom IN)
+  const MANEUVER_ENTER = 25;  // if short is very small zoom in one step
+  const MANEUVER_EXIT  = 45;  // release override when short is larger again
 
-    const now = (
-        typeof performance !== "undefined" ? performance.now() : Date.now());
-    const COOLDOWN_MS = 900;
+  const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+  const COOLDOWN_MS = 1500;
 
-    if (now - lastZoomChangeMs < COOLDOWN_MS) {
-        return ZOOMS[zoomMode];
+  // base update from LONG with hysteresis
+  if (now - lastZoomChangeMs >= COOLDOWN_MS) {
+    const prev = zoomMode;
+
+    if (dL > EXIT_L[zoomMode] && zoomMode < ZOOMS.length - 1) zoomMode++;
+    else if (dL < ENTER_L[zoomMode] && zoomMode > 0) zoomMode--;
+
+    if (zoomMode !== prev) {
+      lastZoomChangeMs = now;
+      logZoomMessage(`Zoom ${ZOOMS[prev]} → ${ZOOMS[zoomMode]} | long ${dL.toFixed(1)} m`);
     }
+  }
 
-    const prevMode = zoomMode;
-    const prevZoom = ZOOMS[prevMode];
+  // maneuver override: allow only zoom IN (more detailed)
+  // store a separate flag for override
+  if (typeof updateZoomModeDual.maneuver === "undefined") updateZoomModeDual.maneuver = false;
 
-    if (d > EXIT[zoomMode] && zoomMode < ZOOMS.length - 1) {
-        zoomMode++;
-    } else if (d < ENTER[zoomMode] && zoomMode > 0) {
-        zoomMode--;
-    }
+  if (!updateZoomModeDual.maneuver && dS < MANEUVER_ENTER) {
+    updateZoomModeDual.maneuver = true;
+  } else if (updateZoomModeDual.maneuver && dS > MANEUVER_EXIT) {
+    updateZoomModeDual.maneuver = false;
+  }
 
-    if (zoomMode !== prevMode) {
-        lastZoomChangeMs = now;
-        const newZoom = ZOOMS[zoomMode];
+  let effectiveMode = zoomMode;
 
-        logZoomMessage(
-            `Zoom ${prevZoom} → ${newZoom} | segLen ${d.toFixed(1)} m`
-        );
-    }
+  if (updateZoomModeDual.maneuver) {
+    // zoom in by 1 step, but not beyond mode 0
+    effectiveMode = Math.max(0, zoomMode - 1);
+  }
 
-    return ZOOMS[zoomMode];
+  return ZOOMS[effectiveMode];
 }
 
-function zoomFromSegLen(segLenM) {
-    return updateZoomModeBySegLen(segLenM);
+
+function zoomFromSegLen(segShortM, segLongM) {
+    return updateZoomModeDual(segShortM, segLongM);
 }
 
 
@@ -586,10 +598,10 @@ async function updateMyPosition() {
             myWalkerDIdx = Number.isInteger(s.walker.dIdx) ? s.walker.dIdx : 0;
 
             if (createdKind === "walker") {
-                const {heading, segLenM} =
-                    headingAndSegLen(walkerRoutePoints, myWalkerPIdx, 10);
-                const zoom = zoomFromSegLen(segLenM);
-                followWithRotation(latlng, heading, zoom, segLenM);
+                const { heading, segShortM, segLongM } =
+                    headingAndSegLens(walkerRoutePoints, myWalkerPIdx, 5, 30);
+                const zoom = zoomFromSegLen(segShortM, segLongM);
+                followWithRotation(latlng, heading, zoom, segShortM);
             }
 
         }
@@ -604,10 +616,10 @@ async function updateMyPosition() {
             }
             myDriverIdx = Number.isInteger(s.driver.idx) ? s.driver.idx : 0;
             if (createdKind === "driver") {
-                const {heading, segLenM} =
-                    headingAndSegLen(driverRoutePoints, myDriverIdx, 5);
-                const zoom = zoomFromSegLen(segLenM);
-                followWithRotation(latlng, heading, zoom, segLenM);
+                const { heading, segShortM, segLongM } =
+                    headingAndSegLens(driverRoutePoints, myDriverIdx, 5, 14);
+                const zoom = zoomFromSegLen(segShortM, segLongM);
+                followWithRotation(latlng, heading, zoom, segShortM);
             }
         }
 
