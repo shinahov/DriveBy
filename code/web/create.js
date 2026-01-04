@@ -112,6 +112,35 @@ let pendingZoom = null;
 let desiredZoom = null;
 let flyToCalls = 0;
 
+
+function offsetBySegLen(segLenM) {
+  const d = Math.max(5, Math.min(400, segLenM));
+  // d=5 -> 70px, d=400 -> 220px
+  const t = (d - 5) / (400 - 5);
+  return Math.round(70 + t * (220 - 70));
+}
+
+
+function offsetCenterByHeading(latlng, zoom, headingDeg, offsetPx) {
+  // latlng to pixel at zoom
+  const p = map.project(latlng, zoom);
+
+  // Heading
+  const rad = headingDeg * Math.PI / 180;
+
+  // In screen/world pixel coords:
+  // x grows right, y grows down
+  const dx = Math.sin(rad) * offsetPx;
+  const dy = -Math.cos(rad) * offsetPx;    // minus because y down
+
+  const p2 = L.point(p.x + dx, p.y + dy);
+
+  // back to latlng
+  return map.unproject(p2, zoom);
+}
+
+
+
 function onFlyFinished() {
     flying = false;
 
@@ -148,7 +177,8 @@ function onFlyFinished() {
     }
 }
 
-function followWithRotation(centerLatLng, heading, zoom) {
+
+function followWithRotation(centerLatLng, heading, zoom, segLenM) {
     if (!followEnabled) return;
     lastFollowTick = Date.now();
 
@@ -164,6 +194,9 @@ function followWithRotation(centerLatLng, heading, zoom) {
     });
 
     setSmoothBearing(heading);
+
+    const offsetPx = offsetBySegLen(segLenM);
+    const centerLatLngOffset = offsetCenterByHeading(centerLatLng, zoom, heading, offsetPx);
 
     // If a fly is running, store the latest request and exit
     if (flying) {
@@ -184,7 +217,7 @@ function followWithRotation(centerLatLng, heading, zoom) {
         // Ensure we always end flying
         map.once("moveend", onFlyFinished);
 
-        map.flyTo(centerLatLng, zoom, {
+        map.flyTo(centerLatLngOffset, zoom, {
             animate: true,
             duration: 1.5,
             easeLinearity: 0.5
@@ -196,7 +229,7 @@ function followWithRotation(centerLatLng, heading, zoom) {
     pendingCenter = null;
     pendingZoom = null;
 
-    map.panTo(centerLatLng, {animate: true, duration: 0.25});
+    map.panTo(centerLatLngOffset, {animate: true, duration: 0.25});
 }
 
 map.on("zoomend", () => {
@@ -556,7 +589,7 @@ async function updateMyPosition() {
                 const {heading, segLenM} =
                     headingAndSegLen(walkerRoutePoints, myWalkerPIdx, 10);
                 const zoom = zoomFromSegLen(segLenM);
-                followWithRotation(latlng, heading, zoom);
+                followWithRotation(latlng, heading, zoom, segLenM);
             }
 
         }
@@ -574,7 +607,7 @@ async function updateMyPosition() {
                 const {heading, segLenM} =
                     headingAndSegLen(driverRoutePoints, myDriverIdx, 5);
                 const zoom = zoomFromSegLen(segLenM);
-                followWithRotation(latlng, heading, zoom);
+                followWithRotation(latlng, heading, zoom, segLenM);
             }
         }
 
