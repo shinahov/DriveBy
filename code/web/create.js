@@ -113,11 +113,14 @@ let desiredZoom = null;
 let flyToCalls = 0;
 
 
-function offsetBySegLen(segLenM) {
-  const d = Math.max(5, Math.min(400, segLenM));
-  // d=5 -> 70px, d=400 -> 220px
-  const t = (d - 5) / (400 - 5);
-  return Math.round(70 + t * (220 - 70));
+function offsetBySegLen(zoom) {
+  const table = {
+    20: 220,
+    19: 200,
+    18: 170,
+    16: 120
+  };
+  return table[zoom] ?? 150;
 }
 
 
@@ -195,12 +198,12 @@ function followWithRotation(centerLatLng, heading, zoom, segLenM) {
 
     setSmoothBearing(heading);
 
-    const offsetPx = offsetBySegLen(segLenM);
+    const offsetPx = offsetBySegLen(zoom);
     const centerLatLngOffset = offsetCenterByHeading(centerLatLng, zoom, heading, offsetPx);
 
     // If a fly is running, store the latest request and exit
     if (flying) {
-        pendingCenter = centerLatLng;
+        pendingCenter = centerLatLngOffset;
         pendingZoom = zoom;
         return;
     }
@@ -239,7 +242,13 @@ map.on("zoomend", () => {
 
 // Get heading and length of segment starting at points[idx]
 function headingAndSegLens(points, idx, shortLook = 8, longLook = 50) {
-    if (!Array.isArray(points) || points.length < 2) {
+    if (!Array.isArray(points) || points.length < 2) {  // the bug (segLongM was 0 first few kilometers) is disappeared after adding logging (???)
+        console.warn("[headingAndSegLens] invalid points", {
+            isArray: Array.isArray(points),
+            len: points?.length,
+            idx
+        });
+
         return {
             heading: 0,
             segShortM: 0,
@@ -293,18 +302,18 @@ function logZoomMessage(text) {
 }
 
 function updateZoomModeDual(segShortM, segLongM) {
-  const dL = Math.max(5, Math.min(400, segLongM));
-  const dS = Math.max(5, Math.min(400, segShortM));
+  const dL = Math.max(50, Math.min(6500, segLongM));
+  const dS = segShortM;
 
-  const ZOOMS = [20, 19, 18, 16];
+  const ZOOMS = [19, 18, 17, 16];
 
   // thresholds based on LONG (stable)
-  const ENTER_L = [-Infinity, 30, 80, 170];
-  const EXIT_L  = [60,        120, 220, Infinity];
+  const ENTER_L = [-Infinity, 856, 1719, 2997];
+  const EXIT_L  = [1427, 2866, 4994, Infinity];
 
   // maneuver override based on SHORT (only zoom IN)
-  const MANEUVER_ENTER = 25;  // if short is very small zoom in one step
-  const MANEUVER_EXIT  = 45;  // release override when short is larger again
+  const MANEUVER_ENTER = 51;  // if short is very small zoom in one step
+  const MANEUVER_EXIT  = 90;  // release override when short is larger again
 
   const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
   const COOLDOWN_MS = 1500;
@@ -313,12 +322,14 @@ function updateZoomModeDual(segShortM, segLongM) {
   if (now - lastZoomChangeMs >= COOLDOWN_MS) {
     const prev = zoomMode;
 
-    if (dL > EXIT_L[zoomMode] && zoomMode < ZOOMS.length - 1) zoomMode++;
-    else if (dL < ENTER_L[zoomMode] && zoomMode > 0) zoomMode--;
+    if (dL > EXIT_L[zoomMode] && zoomMode < ZOOMS.length - 1)
+        zoomMode++; // zoom OUT
+    else if (dL < ENTER_L[zoomMode] && zoomMode > 0)
+        zoomMode--; // zoom IN
 
     if (zoomMode !== prev) {
       lastZoomChangeMs = now;
-      logZoomMessage(`Zoom ${ZOOMS[prev]} → ${ZOOMS[zoomMode]} | long ${dL.toFixed(1)} m`);
+      logZoomMessage(`Zoom ${ZOOMS[prev]} → ${ZOOMS[zoomMode]} | long ${segLongM.toFixed(1)} m`);
     }
   }
 
@@ -617,7 +628,7 @@ async function updateMyPosition() {
             myDriverIdx = Number.isInteger(s.driver.idx) ? s.driver.idx : 0;
             if (createdKind === "driver") {
                 const { heading, segShortM, segLongM } =
-                    headingAndSegLens(driverRoutePoints, myDriverIdx, 5, 14);
+                    headingAndSegLens(driverRoutePoints, myDriverIdx, 20, 60);
                 const zoom = zoomFromSegLen(segShortM, segLongM);
                 followWithRotation(latlng, heading, zoom, segShortM);
             }
