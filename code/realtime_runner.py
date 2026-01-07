@@ -16,43 +16,78 @@ create_requests: Dict[str, Dict[str, Any]] = {}
 # async job queue for create requests
 create_q: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
 
+# for status subscriptions
+subscribers: Dict[str, Set[web.WebSocketResponse]] = {}
 
 # Health check endpoint
 async def health_check(request: web.Request) -> web.Response:
     return web.Response(text="OK")
 
 
-async def send_status(ws: web.WebSocketResponse, request_id: str, status: str):
-    # Update the status in the in-memory storage
+# Add a subscriber for a specific request_id
+def add_subscriber(request_id: str, ws: web.WebSocketResponse):
+    if request_id not in subscribers:
+        subscribers[request_id] = set()
+    subscribers[request_id].add(ws)
+
+
+# Remove a subscriber from all request_id sets
+def remove_subscriber_everywhere(ws: web.WebSocketResponse) -> None:
+    # Remove ws from all request_id subscriber sets
+    empty = []
+    for rid, conns in subscribers.items():
+        conns.discard(ws)
+        if not conns:
+            empty.append(rid)
+    # Cleanup empty sets
+    for rid in empty:
+        del subscribers[rid]
+
+
+async def broadcast_status(request_id: str, status: str):
     create_requests[request_id]["status"] = status
-
-    if ws.closed:
-        return
-
-    # Send the status update to the client
-    await ws.send_str(json.dumps({
+    msg = json.dumps({
         "type": "status",
         "request_id": request_id,
         "status": status
-    }))
+    })
+
+    conns = subscribers.get(request_id, set())
+    if not conns:
+        return
+
+    dead_conns = set()
+    for ws in conns:
+        if ws.closed:
+            dead_conns.add(ws)
+            continue
+        try:
+            await ws.send_str(msg)
+        except Exception:
+            dead_conns.add(ws)
+    for ws in dead_conns:
+        conns.discard(ws)
 
 
 async def worker_loop():
     while True:
         job = await create_q.get()
         request_id = job["request_id"]
-        ws = job["ws"]
         data = job["data"]
 
         try:
-            await send_status(ws, request_id, "processing")
+            await broadcast_status(request_id, "processing")
             # Simulate processing time
             await asyncio.sleep(1.0)
-            await send_status(ws, request_id, "completed")
+            await broadcast_status(request_id, "completed")
 
         except Exception as e:
             create_requests[request_id]["status"] = "failed"
-            await send_status(ws, request_id, "failed")
+            await broadcast_status(request_id, "failed")
+
+        # Mark the task as done
+        finally:
+            create_q.task_done()
 
 
 # WebSocket handler
@@ -77,30 +112,42 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
             request_id = create_uuid()
             payload = data.get("payload", {})
             create_requests[request_id] = {
-                "status": "created",
+                "status": "queued",
                 "payload": payload
             }
+            add_subscriber(request_id, ws)
+
             await ws.send_str(json.dumps({
                 "type": "created",
                 "request_id": request_id
             }))
-
-            await ws.send_str(json.dumps({
-                "type": "status",
-                "request_id": request_id,
-                "status": "queued"
-            }))
+            await broadcast_status(request_id, "queued")
 
             # Enqueue the job for processing
             await create_q.put({
                 "request_id": request_id,
-                "ws": ws,
                 "data": payload
             })
             continue
 
-        await ws.send_str(json.dumps({"type": "error", "msg": "Unknown message type"}))
+        if data.get("type") == "subscribe":
+            rid = data.get("request_id")
+            if not rid:
+                await ws.send_str(json.dumps({"type": "error", "msg": "missing request_id"}))
+                continue
 
+            add_subscriber(rid, ws)
+
+            st = create_requests.get(rid, {"status": "unknown"})
+            await ws.send_str(json.dumps({
+                "type": "status",
+                "request_id": rid,
+                "status": st.get("status", "unknown")
+            }))
+            continue
+
+        await ws.send_str(json.dumps({"type": "error", "msg": "Unknown message type"}))
+    remove_subscriber_everywhere(ws)
     return ws
 
 
