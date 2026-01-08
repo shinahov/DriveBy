@@ -1,5 +1,7 @@
+import asyncio
 import math
 import random
+import threading
 import time
 import folium
 import requests
@@ -8,11 +10,15 @@ from typing import List, Tuple, Optional, Dict, Any
 from functools import lru_cache
 from queue import Queue, Empty
 
+from aiohttp import web
+
 from RouteBase import LatLon, DriverRoute, WalkerRoute, RouteBase
 from Match import Match, MatchLight
 from AgentState import AgentState
 from MatchSimulation import MatchSimulation, Phase
-from realtime_runner import *
+from ws_bus import publish
+
+#from realtime_runner import *
 
 OSRM_DRIVE = "http://localhost:5000"
 OSRM_WALK = "http://localhost:5001"
@@ -479,7 +485,7 @@ def best_match_(drivers: List[AgentState], walker: AgentState, min_saving_m: flo
         return None, None
 
 
-def write_routes_json(sims: List[MatchSimulation], version: float, filename="routes.json"):
+def build_routes_payload(sims: List[MatchSimulation], version: float) -> dict:
     routes = []
 
     for sim in sims:
@@ -505,8 +511,7 @@ def write_routes_json(sims: List[MatchSimulation], version: float, filename="rou
                     "dropoff": m.dropoff_index}
             })
 
-    write_positions_json(
-        {"routes_version": version, "routes": routes}, filename=filename)
+    return {"routes_version": version, "routes": routes}
 
 
 # demo / map (OBSOLET)
@@ -628,7 +633,7 @@ def set_request_status(handler, req_id: str, status: str, kind: str,
     payload = {"status": status, "kind": kind, "agent_id": agent_id}
     if match_id is not None:
         payload["match_id"] = match_id
-    handler.create_requests[req_id] = payload
+    #handler.create_requests[req_id] = payload
 
 
 # leftovers payload helper
@@ -734,86 +739,108 @@ def drain_create_queue(q: Queue) -> list:
     return reqs
 
 
-def start():
-    start_pt = (51.2562, 7.1508)
-    end_pt = (51.2277, 6.7735)
-    walker_start = (51.202561, 6.780486)
-    walker_end = (51.219105, 6.787711)
+def start_simulation(app: web.Application, loop: asyncio.AbstractEventLoop):
+    def run():
+        start_pt = (51.2562, 7.1508)
+        end_pt = (51.2277, 6.7735)
+        walker_start = (51.202561, 6.780486)
+        walker_end = (51.219105, 6.787711)
 
-    min_saving_m = 800.0
-    agent_id_to_request_id: dict[str, str] = {}
+        min_saving_m = 800.0
+        agent_id_to_request_id: dict[str, str] = {}
 
-    walker_agent_list = create_walkers(walker_start, walker_end, 300, 6)
-    driver_agent_list = create_drivers(start_pt, end_pt, radius_m=1000, count=1)
+        walker_agent_list = create_walkers(walker_start, walker_end, 300, 6)
+        driver_agent_list = create_drivers(start_pt, end_pt, radius_m=1000, count=1)
 
-    matches_sim_list, driver_agent_list, walker_agent_list = create_matches(
-        driver_agent_list, walker_agent_list, now_t=0.0, min_saving_m=min_saving_m
-    )
+        matches_sim_list, driver_agent_list, walker_agent_list = create_matches(
+            driver_agent_list, walker_agent_list, now_t=0.0, min_saving_m=min_saving_m
+        )
 
-    if matches_sim_list is None:
-        print("no match")
-        raise SystemExit(0)
+        if matches_sim_list is None:
+            print("no match")
+            raise SystemExit(0)
 
-    print(len(matches_sim_list))
+        routes = build_routes_payload(matches_sim_list, version=0.0)
+        asyncio.run_coroutine_threadsafe(
+            publish(app, {"type": "routes", "data": routes}),
+            loop
+        )
 
-    my_queue = Queue()
-    handler = start_server(create_q=my_queue, port=8000)
-
-    # Write routes once
-    write_routes_json(matches_sim_list, version=0)
-
-    # Initial snapshot (force sim update at t=0)
-    for sim in matches_sim_list:
-        sim.update(0.0)
-
-    data0 = build_snapshot_payload(
-        t_s=0.0,
-        sims=matches_sim_list,
-        driver_agents=driver_agent_list,
-        walker_agents=walker_agent_list,
-        include_agent_id=False
-    )
-    write_positions_json(data0)
-
-    webbrowser.open("http://127.0.0.1:8000/web/map.html?v=" + str(time.time()))
-
-    t = 0.0
-    while True:
-        # Handle incoming create-requests
-        for req in drain_create_queue(my_queue):
-            req_id, new_agent, kind = handle_req(req, offset=t)
-            process_new_agent(
-                kind=kind,
-                new_agent=new_agent,
-                t=t,
-                matches_sim_list=matches_sim_list,
-                driver_agent_list=driver_agent_list,
-                walker_agent_list=walker_agent_list,
-                agent_id_to_request_id=agent_id_to_request_id,
-                handler=handler,
-                req_id=req_id,
-                min_saving_m=min_saving_m
-            )
-            write_routes_json(matches_sim_list, version=t)
-
-        # Update unmatched drivers
-        for a in driver_agent_list:
-            a.update_position(t)
-
-        # Update all simulations
+        # Initial snapshot (force sim update at t=0)
         for sim in matches_sim_list:
-            sim.update(t)
+            sim.update(0.0)
 
-        # Write one combined snapshot
-        data = build_snapshot_payload(
-            t_s=t,
+        data0 = build_snapshot_payload(
+            t_s=0.0,
             sims=matches_sim_list,
             driver_agents=driver_agent_list,
             walker_agents=walker_agent_list,
-            include_agent_id=True
+            include_agent_id=False
         )
-        write_positions_json(data)
 
-        dt = handler.speed
-        t += dt
-        time.sleep(0.05)
+        asyncio.run_coroutine_threadsafe(
+            publish(app, {"type": "position", "data": data0}),
+            loop
+        )
+
+        #webbrowser.open("http://127.0.0.1:8000/web/map.html?v=" + str(time.time()))
+
+        t = 0.0
+        dt = 1.0
+        while True:
+            # Handle incoming create-requests
+            routes_changed = False
+            for req in drain_create_queue(app["create_q"]):
+                req_id, new_agent, kind = handle_req(req, offset=t)
+                process_new_agent(
+                    kind=kind,
+                    new_agent=new_agent,
+                    t=t,
+                    matches_sim_list=matches_sim_list,
+                    driver_agent_list=driver_agent_list,
+                    walker_agent_list=walker_agent_list,
+                    agent_id_to_request_id=agent_id_to_request_id,
+                    handler=None,
+                    req_id=req_id,
+                    min_saving_m=min_saving_m
+                )
+                routes_changed = True
+
+            # Update unmatched drivers
+            for a in driver_agent_list:
+                a.update_position(t)
+
+            # Update all simulations
+            for sim in matches_sim_list:
+                sim.update(t)
+
+            # Write one combined snapshot
+            data = build_snapshot_payload(
+                t_s=t,
+                sims=matches_sim_list,
+                driver_agents=driver_agent_list,
+                walker_agents=walker_agent_list,
+                include_agent_id=True
+            )
+            asyncio.run_coroutine_threadsafe(
+                publish(app, {"type": "position", "data": data}),
+                loop
+            )
+
+            # If routes changed, send updated routes
+            if routes_changed:
+                routes = build_routes_payload(matches_sim_list, version=t)
+                asyncio.run_coroutine_threadsafe(
+                    publish(app, {"type": "routes", "data": routes}),
+                    loop
+                )
+
+            #dt = handler.speed
+            t += dt
+            time.sleep(0.05)
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+
+

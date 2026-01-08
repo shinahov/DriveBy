@@ -1,5 +1,41 @@
-// map.js (multi-simulation version)
-//alert("map.js loaded");
+let ws = null;
+let wsReady = false;
+
+function setupWebSocket() {
+    ws = new WebSocket("ws://" + window.location.host + "/ws");
+
+    ws.onopen = () => {
+        wsReady = true;
+        console.log("WebSocket connected");
+    };
+
+    ws.onclose = () => {
+        wsReady = false;
+        console.log("WebSocket disconnected, retrying in 2s...");
+        setTimeout(setupWebSocket, 2000);
+    };
+
+    ws.onerror = (err) => {
+        console.error("WebSocket error:", err);
+        ws.close();
+    };
+
+    ws.onmessage = (event) => {
+        // Handle incoming messages if needed
+        const msg = JSON.parse(event.data);
+
+        if (msg.type === "positions") {
+            applyPositions(msg.data);
+            applyFocus();
+        }
+        if (msg.type === "routes") {
+            applyRoadsVersion(msg.data);
+            applyFocus();
+        }
+    };
+}
+
+setupWebSocket();
 
 // map setup
 const map = L.map("map");
@@ -235,13 +271,8 @@ function applyFocus() {
 }
 
 
-//Routes (load once)
-async function tryLoadRoutes() {
-    //if (routesLoaded) return;
-
-    try {
-        const data = await fetchJsonNoCache("routes.json");
-        const v = (typeof data.routes_version === "number") ? data.routes_version : null;
+function applyRoadsVersion(data) {
+    const v = (typeof data.routes_version === "number") ? data.routes_version : null;
         if (v !== null && v === roadsVersion) return;
         if (v !== null) roadsVersion = v;
         const routes = Array.isArray(data.routes) ? data.routes : [];
@@ -336,18 +367,25 @@ async function tryLoadRoutes() {
 
         routesLoaded = true;
         infoEl.textContent = "Routes loaded.\nWaiting for positions.json ...";
+}
+
+//Routes (load once)
+async function tryLoadRoutes() {
+    //if (routesLoaded) return;
+
+    try {
+        const data = await fetchJsonNoCache("routes.json");
+        applyRoadsVersion(data);
     } catch (e) {
-        infoEl.textContent = "Waiting for routes.json ...";
+        infoEl.textContent = "--error";
     }
     applyFocus();
 
 }
 
-// continuous
-async function updatePositions() {
-    try {
-        const data = await fetchJsonNoCache("positions.json");
-        const sims = Array.isArray(data.sims) ? data.sims : [];
+
+function applyPositions(data) {
+    const sims = Array.isArray(data.sims) ? data.sims : [];
 
         ensureSimLayers(sims.length);
 
@@ -440,6 +478,13 @@ async function updatePositions() {
             "sims = " + sims.length + "\n" +
             "left drivers = " + lD.length + "\n" +
             "left walkers = " + lW.length;
+}
+
+// continuous
+async function updatePositions() {
+    try {
+        const data = await fetchJsonNoCache("positions.json");
+        applyPositions(data);
 
     } catch (e) {
         infoEl.textContent = routesLoaded

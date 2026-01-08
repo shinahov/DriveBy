@@ -1,3 +1,7 @@
+let ws = null;
+let wsReady = false;
+
+
 const map = L.map("map", {
     rotate: true,
     bearing: 0,
