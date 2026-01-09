@@ -17,8 +17,6 @@ def create_uuid() -> str:
 
 # In-memory storage for requests
 create_requests: Dict[str, Dict[str, Any]] = {}
-# async job queue for create requests
-create_q: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
 
 # for status subscriptions
 subscribers: Dict[str, Set[web.WebSocketResponse]] = {}
@@ -36,6 +34,7 @@ async def publish(app: web.Application, event: Dict[str, Any]):
         except asyncio.QueueEmpty:
             pass
     await q.put(event)
+
 
 async def broadcaster(app: web.Application):
     q: asyncio.Queue = app["pub_q"]
@@ -57,6 +56,7 @@ async def broadcaster(app: web.Application):
             ws_clients.discard(ws)
 
         q.task_done()
+
 
 # Health check endpoint
 async def health_check(request: web.Request) -> web.Response:
@@ -108,26 +108,6 @@ async def broadcast_status(request_id: str, status: str):
         conns.discard(ws)
 
 
-async def worker_loop():
-    while True:
-        job = await create_q.get()
-        request_id = job["request_id"]
-        data = job["data"]
-
-        try:
-            await broadcast_status(request_id, "processing")
-            # Simulate processing time
-            await asyncio.sleep(1.0)
-            await broadcast_status(request_id, "completed")
-
-        except Exception as e:
-            create_requests[request_id]["status"] = "failed"
-            await broadcast_status(request_id, "failed")
-
-        # Mark the task as done
-        finally:
-            create_q.task_done()
-
 
 # WebSocket handler
 async def ws_handler(request: web.Request) -> web.WebSocketResponse:
@@ -135,6 +115,19 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     await ws.prepare(request)
 
     ws_clients.add(ws)
+    routes = request.app.get("routes", [])
+    if routes is not None:
+        await ws.send_str(json.dumps({
+            "type": "routes",
+            "data": routes
+        }))
+
+    last_pos = request.app.get("last_position", None)
+    if last_pos is not None:
+        await ws.send_str(json.dumps({
+            "type": "position",
+            "data": last_pos
+        }))
 
     try:
         await ws.send_str(json.dumps({
@@ -158,7 +151,6 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
 
                 create_requests[request_id] = {"status": "queued", "payload": payload}
 
-
                 request.app["create_q"].put({
                     "request_id": request_id,
                     "payload": payload
@@ -169,7 +161,6 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                 await ws.send_str(json.dumps({"type": "created", "request_id": request_id}))
                 await broadcast_status(request_id, "queued")
 
-
                 # await create_q.put({"request_id": request_id, "data": payload})
 
                 continue
@@ -177,12 +168,15 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
             if data.get("type") == "subscribe":
                 rid = data.get("request_id")
                 if not rid:
-                    await ws.send_str(json.dumps({"type": "error", "msg": "missing request_id"}))
+                    await ws.send_str(json.dumps(
+                        {"type": "error",
+                         "msg": "missing request_id"}))
                     continue
 
                 add_subscriber(rid, ws)
 
-                st = create_requests.get(rid, {"status": "unknown"})
+                st = create_requests.get(rid,
+                                         {"status": "unknown"})
                 await ws.send_str(json.dumps({
                     "type": "status",
                     "request_id": rid,
@@ -199,7 +193,6 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
-
 # Startup task to run the worker loop
 async def on_startup(app: web.Application):
     app['pub_q'] = asyncio.Queue(maxsize=1)
@@ -212,9 +205,9 @@ async def on_startup(app: web.Application):
 
 # Cleanup on shutdown
 async def on_cleanup(app: web.Application):
-    app['worker_task'].cancel()
+    app['broadcaster_task'].cancel()
     try:
-        await app['worker_task']
+        await app['broadcaster_task']
     except asyncio.CancelledError:
         pass
 
@@ -236,6 +229,7 @@ async def no_cache(request, handler):
         resp.headers["Expires"] = "0"
     return resp
 
+
 def create_app() -> web.Application:
     app = web.Application(middlewares=[no_cache])
     app.add_routes([
@@ -252,8 +246,6 @@ def create_app() -> web.Application:
     return app
 
 
-
 if __name__ == "__main__":
     app = create_app()
     web.run_app(app, host="127.0.0.1", port=8000)
-

@@ -761,6 +761,7 @@ def start_simulation(app: web.Application, loop: asyncio.AbstractEventLoop):
             raise SystemExit(0)
 
         routes = build_routes_payload(matches_sim_list, version=0.0)
+        app["routes"] = routes
         asyncio.run_coroutine_threadsafe(
             publish(app, {"type": "routes", "data": routes}),
             loop
@@ -778,8 +779,9 @@ def start_simulation(app: web.Application, loop: asyncio.AbstractEventLoop):
             include_agent_id=False
         )
 
+        app["last_positions"] = data0
         asyncio.run_coroutine_threadsafe(
-            publish(app, {"type": "position", "data": data0}),
+            publish(app, {"type": "positions", "data": data0}),
             loop
         )
 
@@ -822,11 +824,12 @@ def start_simulation(app: web.Application, loop: asyncio.AbstractEventLoop):
                 walker_agents=walker_agent_list,
                 include_agent_id=True
             )
+
+            app["last_positions"] = data
             asyncio.run_coroutine_threadsafe(
-                publish(app, {"type": "position", "data": data}),
+                publish(app, {"type": "positions", "data": data}),
                 loop
             )
-
             # If routes changed, send updated routes
             if routes_changed:
                 routes = build_routes_payload(matches_sim_list, version=t)

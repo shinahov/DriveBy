@@ -23,6 +23,8 @@ function setupWebSocket() {
     ws.onmessage = (event) => {
         // Handle incoming messages if needed
         const msg = JSON.parse(event.data);
+        console.log("WS IN", event.data);
+
 
         if (msg.type === "positions") {
             applyPositions(msg.data);
@@ -71,12 +73,6 @@ let simLayers = [];
 let leftoverDriverMarkers = [];
 let leftoverWalkerMarkers = [];
 
-// helpers
-async function fetchJsonNoCache(url) {
-    const res = await fetch(url + "?ts=" + Date.now(), {cache: "no-store"});
-    if (!res.ok) throw new Error("HTTP " + res.status + " for " + url);
-    return await res.json();
-}
 
 function sliceInclusive(points, a, b) {
     if (a < 0) a = 0;
@@ -102,20 +98,6 @@ function createWalkerTriangleMarker(latlng) {
     });
 }
 
-function redrawPreviewLine() {
-    if (tmpPreviewLine) {
-        map.removeLayer(tmpPreviewLine);
-        tmpPreviewLine = null;
-    }
-
-    // confirmed start + pending/confirmed dest
-    const a = startPoint;
-    const b = (step === "pick_dest" && pendingPoint) ? pendingPoint : destPoint;
-
-    if (a && b) {
-        tmpPreviewLine = L.polyline([a, b], {weight: 3, dashArray: "6,6"}).addTo(map);
-    }
-}
 
 function createPulsingDriverMarker(latlng) {
     return L.marker(latlng, {
@@ -366,7 +348,7 @@ function applyRoadsVersion(data) {
         }
 
         routesLoaded = true;
-        infoEl.textContent = "Routes loaded.\nWaiting for positions.json ...";
+        infoEl.textContent = "Routes loaded...";
 }
 
 //Routes (load once)
@@ -488,8 +470,8 @@ async function updatePositions() {
 
     } catch (e) {
         infoEl.textContent = routesLoaded
-            ? "Routes loaded.\nWaiting for positions.json ..."
-            : "Waiting for routes.json ...";
+            ? "Routes loaded..."
+            : "Waiting for routes...";
     }
     applyFocus();
 
@@ -537,11 +519,4 @@ map.on("dblclick", () => {
 
 
 
-//scheduling
-setInterval(tryLoadRoutes, 300);
-setInterval(updatePositions, 200);
-
-// Start immediately
-tryLoadRoutes();
-updatePositions();
 
