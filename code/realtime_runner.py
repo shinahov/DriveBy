@@ -38,12 +38,14 @@ async def publish(app: web.Application, event: Dict[str, Any]):
 
 async def broadcaster(app: web.Application):
     q: asyncio.Queue = app["pub_q"]
+    global_ws = app["global_ws"]
+
     while True:
         evnt = await q.get()
         msg = json.dumps(evnt)
 
         dead_clients = set()
-        for ws in ws_clients:
+        for ws in global_ws:
             if ws.closed:
                 dead_clients.add(ws)
                 continue
@@ -53,7 +55,7 @@ async def broadcaster(app: web.Application):
                 dead_clients.add(ws)
 
         for ws in dead_clients:
-            ws_clients.discard(ws)
+            app["global_ws"].discard(ws)
 
         q.task_done()
 
@@ -108,87 +110,29 @@ async def broadcast_status(request_id: str, status: str):
         conns.discard(ws)
 
 
-
 # WebSocket handler
 async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(heartbeat=20)
     await ws.prepare(request)
 
-    ws_clients.add(ws)
-    routes = request.app.get("routes", [])
-    if routes is not None:
-        await ws.send_str(json.dumps({
-            "type": "routes",
-            "data": routes
-        }))
+    request.app["global_ws"].add(ws)
 
-    last_pos = request.app.get("last_position", None)
+    # Replay: routes
+    routes = request.app.get("routes")
+    if routes is not None:
+        await ws.send_str(json.dumps({"type": "routes", "data": routes}))
+
+    # Replay: last positions
+    last_pos = request.app.get("last_positions")
     if last_pos is not None:
-        await ws.send_str(json.dumps({
-            "type": "position",
-            "data": last_pos
-        }))
+        await ws.send_str(json.dumps({"type": "positions", "data": last_pos}))
 
     try:
-        await ws.send_str(json.dumps({
-            "type": "hello",
-            "msg": "Welcome to the WebSocket server!"
-        }))
-
         async for msg in ws:
-            if msg.type != WSMsgType.TEXT:
-                continue
-
-            try:
-                data = json.loads(msg.data)
-            except json.JSONDecodeError:
-                await ws.send_str(json.dumps({"type": "error", "msg": "Invalid JSON"}))
-                continue
-
-            if data.get("type") == "create_request":
-                request_id = create_uuid()
-                payload = data.get("payload", {})
-
-                create_requests[request_id] = {"status": "queued", "payload": payload}
-
-                request.app["create_q"].put({
-                    "request_id": request_id,
-                    "payload": payload
-                })
-
-                add_subscriber(request_id, ws)
-
-                await ws.send_str(json.dumps({"type": "created", "request_id": request_id}))
-                await broadcast_status(request_id, "queued")
-
-                # await create_q.put({"request_id": request_id, "data": payload})
-
-                continue
-
-            if data.get("type") == "subscribe":
-                rid = data.get("request_id")
-                if not rid:
-                    await ws.send_str(json.dumps(
-                        {"type": "error",
-                         "msg": "missing request_id"}))
-                    continue
-
-                add_subscriber(rid, ws)
-
-                st = create_requests.get(rid,
-                                         {"status": "unknown"})
-                await ws.send_str(json.dumps({
-                    "type": "status",
-                    "request_id": rid,
-                    "status": st.get("status", "unknown")
-                }))
-                continue
-
-            await ws.send_str(json.dumps({"type": "error", "msg": "Unknown message type"}))
-
+            # for now, we just ignore incoming messages
+            pass
     finally:
-        ws_clients.discard(ws)
-        remove_subscriber_everywhere(ws)
+        request.app["global_ws"].discard(ws)
 
     return ws
 
@@ -198,6 +142,7 @@ async def on_startup(app: web.Application):
     app['pub_q'] = asyncio.Queue(maxsize=1)
     app['broadcaster_task'] = asyncio.create_task(broadcaster(app))
     app["create_q"] = Queue()
+    app["global_ws"] = set()
 
     loop = asyncio.get_running_loop()
     start_simulation(app, loop)
