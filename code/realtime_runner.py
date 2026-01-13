@@ -15,12 +15,10 @@ def create_uuid() -> str:
     return str(uuid.uuid4())
 
 
-# In-memory storage for requests
-create_requests: Dict[str, Dict[str, Any]] = {}
-
 # for status subscriptions
 subscribers: Dict[str, Set[web.WebSocketResponse]] = {}
 
+# global WebSocket clients
 ws_clients: Set[web.WebSocketResponse] = set()
 
 
@@ -86,7 +84,6 @@ def remove_subscriber_everywhere(ws: web.WebSocketResponse) -> None:
 
 
 async def broadcast_status(request_id: str, status: str):
-    create_requests[request_id]["status"] = status
     msg = json.dumps({
         "type": "status",
         "request_id": request_id,
@@ -110,7 +107,68 @@ async def broadcast_status(request_id: str, status: str):
         conns.discard(ws)
 
 
-# WebSocket handler
+async def ws_agent_handler(request: web.Request) -> web.WebSocketResponse:
+    ws = web.WebSocketResponse(heartbeat=20)
+    await ws.prepare(request)
+
+    request_id = request.query.get("request_id")
+    if request_id:
+        add_subscriber(request_id, ws)
+        await ws.send_str(json.dumps({
+            "type": "status",
+            "request_id": request_id,
+            "status": "subscribed"
+        }))
+
+    try:
+        async for msg in ws:
+            if msg.type == WSMsgType.TEXT:
+
+                try:
+                    data = json.loads(msg.data)
+                except json.JSONDecodeError:
+                    await ws.send_str(json.dumps({"error": "invalid JSON"}))
+                    continue
+
+                t = data.get("type")
+                if t == "create_request":
+                    request_id = create_uuid()
+                    payload = data.get("payload", {})
+
+                    add_subscriber(request_id, ws)
+
+                    request.app["create_q"].put({
+                        "request_id": request_id,
+                        "payload": payload
+                    })
+
+                    await ws.send_str(json.dumps({
+                        "type": "created",
+                        "request_id": request_id
+                    }))
+                    continue
+                if t == "subscribe":
+                    req_id = data.get("request_id")
+
+                    add_subscriber(req_id, ws)
+                    await ws.send_str(json.dumps({
+                         "type": "status",
+                         "request_id": req_id,
+                         "status": "subscribed"
+                    }))
+
+                    continue
+                await ws.send_str(json.dumps({"error": "unknown message type"}))
+
+
+            elif msg.type == WSMsgType.ERROR:
+                print(f'WebSocket connection closed with exception {ws.exception()}')
+    finally:
+        remove_subscriber_everywhere(ws)
+    return ws
+
+
+# WebSocket handler for global updates
 async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(heartbeat=20)
     await ws.prepare(request)
@@ -181,6 +239,7 @@ def create_app() -> web.Application:
         web.get("/", index),
         web.get("/health", health_check),
         web.get("/ws", ws_handler),
+        web.get("/ws_agent", ws_agent_handler),
     ])
 
     # Serve static files
