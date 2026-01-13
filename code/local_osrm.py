@@ -16,7 +16,7 @@ from RouteBase import LatLon, DriverRoute, WalkerRoute, RouteBase
 from Match import Match, MatchLight
 from AgentState import AgentState
 from MatchSimulation import MatchSimulation, Phase
-from ws_bus import publish
+from ws_bus import publish, publish_by_id
 
 #from realtime_runner import *
 
@@ -581,7 +581,7 @@ def create_matches(driver_agent_list,
     return match_simulation_list, driver_agent_list, walker_agent_list
 
 
-def snapshot_all(t_s: float, sims: list):
+def snapshot_all(t_s: float, sims: list, agent_id_to_request_id: Optional[dict] = None) -> dict:
     frames = []
 
     for i, sim in enumerate(sims):
@@ -592,11 +592,15 @@ def snapshot_all(t_s: float, sims: list):
             "sim_id": sim.match_id,
             "phase": sim.phase.name,
             "walker": {"agent_id": sim.walker_agent.agent_id,
+                       "req_id": agent_id_to_request_id.get(
+                           sim.walker_agent.agent_id) if agent_id_to_request_id else None,
                        "lat": walker_pos[0],
                        "lon": walker_pos[1],
                        "pIdx": sim.walk_to_pickup_agent.idx,
                        "dIdx": sim.walk_from_dropoff_agent.idx},
             "driver": {"agent_id": sim.driver_agent.agent_id,
+                       "req_id": agent_id_to_request_id.get(
+                           sim.driver_agent.agent_id) if agent_id_to_request_id else None,
                        "lat": driver_pos[0],
                        "lon": driver_pos[1],
                        "idx": sim.driver_agent.idx},
@@ -627,13 +631,24 @@ def handle_req(req, offset: float):
     return id, agent, payload["type"]
 
 
-# status update helper
-def set_request_status(handler, req_id: str, status: str, kind: str,
-                       agent_id: str | None = None, match_id: str | None = None) -> None:
-    payload = {"status": status, "kind": kind, "agent_id": agent_id}
-    if match_id is not None:
-        payload["match_id"] = match_id
-    #handler.create_requests[req_id] = payload
+async def dispatch_frames_by_req_id(app: web.Application, data: Dict[str, Any]) -> None:
+    t_s = data["t_s"]
+
+    for frame in data["sims"]:
+        w_rid = frame["walker"].get("req_id")
+        d_rid = frame["driver"].get("req_id")
+
+        event = {
+            "type": "position",
+            "data": {"t_s": t_s, "frame": frame}
+        }
+
+        if w_rid is not None:
+            await publish_by_id(app, w_rid, event)
+        if d_rid is not None:
+            await publish_by_id(app, d_rid, event)
+
+
 
 
 # leftovers payload helper
@@ -652,8 +667,9 @@ def build_snapshot_payload(t_s: float,
                            sims: list,
                            driver_agents: list,
                            walker_agents: list,
-                           include_agent_id: bool) -> dict:
-    data = snapshot_all(t_s, sims)
+                           agent_id_to_request_id: Optional[dict] = None,
+                           include_agent_id: bool = True) -> dict:
+    data = snapshot_all(t_s, sims, agent_id_to_request_id)
     data["leftover_drivers"] = build_leftovers_payload(driver_agents, include_agent_id)
     data["leftover_walkers"] = build_leftovers_payload(walker_agents, include_agent_id)
     return data
@@ -670,59 +686,29 @@ def process_new_agent(kind: str,
                       handler,
                       req_id: str,
                       min_saving_m: float) -> None:
-    # Mark request as created first
-    set_request_status(
-        handler, req_id, "created", kind, getattr(new_agent, "agent_id", None))
 
     if kind == "driver":
         matches_new, _, _ = create_matches(
             [new_agent], walker_agent_list, now_t=t, min_saving_m=min_saving_m)
         matches_sim_list.extend(matches_new)
-
+        agent_id_to_request_id[new_agent.agent_id] = req_id
         if not matches_new:
-            set_request_status(
-                handler, req_id, "not_matched", kind,
-                getattr(new_agent, "agent_id", None))
-            agent_id_to_request_id[new_agent.agent_id] = req_id
             driver_agent_list.append(new_agent)
             return
-
         ms = matches_new[0]
-        set_request_status(
-            handler, req_id, "matched", kind,
-            new_agent.agent_id, ms.match_id)
-        agent_id_to_request_id[new_agent.agent_id] = req_id
-
-        partner_req_id = agent_id_to_request_id.get(ms.walker_agent.agent_id)
-        if partner_req_id is not None:
-            set_request_status(
-                handler, partner_req_id, "matched", "walker",
-                ms.walker_agent.agent_id, ms.match_id)
+        partner_req_id = agent_id_to_request_id.get(ms.walker_agent.agent_id)#
         return
 
     if kind == "walker":
         matches_new, _, _ = create_matches(
             driver_agent_list, [new_agent], now_t=t, min_saving_m=min_saving_m)
         matches_sim_list.extend(matches_new)
-
+        agent_id_to_request_id[new_agent.agent_id] = req_id
         if not matches_new:
-            set_request_status(
-                handler, req_id, "not_matched", kind,
-                getattr(new_agent, "agent_id", None))
-            agent_id_to_request_id[new_agent.agent_id] = req_id
             walker_agent_list.append(new_agent)
             return
-
         ms = matches_new[0]
-        set_request_status(
-            handler, req_id, "matched", kind, new_agent.agent_id, ms.match_id)
-        agent_id_to_request_id[new_agent.agent_id] = req_id
-
         partner_req_id = agent_id_to_request_id.get(ms.driver_agent.agent_id)
-        if partner_req_id is not None:
-            set_request_status(
-                handler, partner_req_id, "matched", "driver",
-                ms.driver_agent.agent_id, ms.match_id)
         return
 
     raise ValueError(f"Unknown kind: {kind}")
@@ -749,8 +735,8 @@ def start_simulation(app: web.Application, loop: asyncio.AbstractEventLoop):
         min_saving_m = 800.0
         agent_id_to_request_id: dict[str, str] = {}
 
-        walker_agent_list = create_walkers(walker_start, walker_end, 300, 6)
-        driver_agent_list = create_drivers(start_pt, end_pt, radius_m=1000, count=1)
+        walker_agent_list = create_walkers(walker_start, walker_end, 300, 0)
+        driver_agent_list = create_drivers(start_pt, end_pt, radius_m=1000, count=0)
 
         matches_sim_list, driver_agent_list, walker_agent_list = create_matches(
             driver_agent_list, walker_agent_list, now_t=0.0, min_saving_m=min_saving_m
@@ -762,10 +748,12 @@ def start_simulation(app: web.Application, loop: asyncio.AbstractEventLoop):
 
         routes = build_routes_payload(matches_sim_list, version=0.0)
         app["routes"] = routes
+
         asyncio.run_coroutine_threadsafe(
             publish(app, {"type": "routes", "data": routes}),
             loop
         )
+
 
         # Initial snapshot (force sim update at t=0)
         for sim in matches_sim_list:
@@ -812,6 +800,10 @@ def start_simulation(app: web.Application, loop: asyncio.AbstractEventLoop):
             for a in driver_agent_list:
                 a.update_position(t)
 
+            # Update unmatched walkers
+            for a in walker_agent_list:
+                a.update_position(t)
+
             # Update all simulations
             for sim in matches_sim_list:
                 sim.update(t)
@@ -822,14 +814,24 @@ def start_simulation(app: web.Application, loop: asyncio.AbstractEventLoop):
                 sims=matches_sim_list,
                 driver_agents=driver_agent_list,
                 walker_agents=walker_agent_list,
+                agent_id_to_request_id=agent_id_to_request_id,
                 include_agent_id=True
             )
+            # data : dict with t_s, sims, leftover_drivers, leftover_walkers
 
             app["last_positions"] = data
+
             asyncio.run_coroutine_threadsafe(
                 publish(app, {"type": "positions", "data": data}),
                 loop
             )
+            #print("dispatch sims", len(data["sims"]))
+
+            asyncio.run_coroutine_threadsafe(
+                dispatch_frames_by_req_id(app, data),
+                loop
+            )
+
             # If routes changed, send updated routes
             if routes_changed:
                 routes = build_routes_payload(matches_sim_list, version=t)

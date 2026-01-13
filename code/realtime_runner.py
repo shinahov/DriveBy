@@ -22,18 +22,6 @@ subscribers: Dict[str, Set[web.WebSocketResponse]] = {}
 ws_clients: Set[web.WebSocketResponse] = set()
 
 
-async def publish(app: web.Application, event: Dict[str, Any]):
-    q: asyncio.Queue = app["pub_q"]
-
-    if q.full():
-        try:
-            q.get_nowait()
-            q.task_done()
-        except asyncio.QueueEmpty:
-            pass
-    await q.put(event)
-
-
 async def broadcaster(app: web.Application):
     q: asyncio.Queue = app["pub_q"]
     global_ws = app["global_ws"]
@@ -54,6 +42,41 @@ async def broadcaster(app: web.Application):
 
         for ws in dead_clients:
             app["global_ws"].discard(ws)
+
+        q.task_done()
+
+
+# Broadcaster for request_id specific messages
+async def broadcaster_by_id(app: web.Application):
+    q: asyncio.Queue = app["pub_q_by_id"]
+    subs: Dict[str, set[web.WebSocketResponse]] = app["subscribers"]
+
+    while True:
+        request_id, event = await q.get()
+        print("broadcaster_by_id got", request_id, event.get("type"))
+
+        msg = json.dumps(event)
+
+        conns = subs.get(request_id)
+        if not conns:
+            q.task_done()
+            continue
+
+        dead = set()
+        for ws in conns:
+            if ws.closed:
+                dead.add(ws)
+                continue
+            try:
+                await ws.send_str(msg)
+            except Exception:
+                dead.add(ws)
+
+        for ws in dead:
+            conns.discard(ws)
+
+        if not conns:
+            subs.pop(request_id, None)
 
         q.task_done()
 
@@ -199,8 +222,11 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
 async def on_startup(app: web.Application):
     app['pub_q'] = asyncio.Queue(maxsize=1)
     app['broadcaster_task'] = asyncio.create_task(broadcaster(app))
+    app["broadcaster_by_id_task"] = asyncio.create_task(broadcaster_by_id(app))
     app["create_q"] = Queue()
+    app["pub_q_by_id"] = asyncio.Queue(maxsize=10)
     app["global_ws"] = set()
+    app["subscribers"] = subscribers
 
     loop = asyncio.get_running_loop()
     start_simulation(app, loop)
@@ -209,6 +235,7 @@ async def on_startup(app: web.Application):
 # Cleanup on shutdown
 async def on_cleanup(app: web.Application):
     app['broadcaster_task'].cancel()
+    app['broadcaster_by_id_task'].cancel()
     try:
         await app['broadcaster_task']
     except asyncio.CancelledError:
