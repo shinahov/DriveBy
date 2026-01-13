@@ -1,6 +1,59 @@
-let ws = null;
+let agentWS = null;
 let wsReady = false;
+let activeRequestId = null;
 
+
+function setupAgentWS(requestId = null) {
+    const url = "ws://" + window.location.host + "/ws_agent" +
+        (requestId ? ("?request_id=" + encodeURIComponent(requestId)) : "");
+
+    agentWS = new WebSocket(url);
+
+    agentWS.onopen = () => {
+        console.log("agnet ws connected");
+        wsReady = true;
+
+        if (activeRequestId && !requestId) {
+            agentWS.send(JSON.stringify({
+                type: "subscribe",
+                request_id: activeRequestId
+            }));
+
+        }
+
+    };
+    agentWS.onclose = () => {
+        console.log("agent ws disconnected");
+        wsReady = false;
+
+    };
+
+    agentWS.onerror = (event) => {
+        console.error("agent ws error:", event);
+        agentWS.close();
+    };
+
+    agentWS.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        console.log("agent ws message:", msg);
+
+        if (msg.type === "position") {
+            updateMyPosition(msg.data)
+        }
+
+        if (msg.type === "routes") {
+            updateMyRoutes(msg.data)
+        }
+
+        if (msg.type === "status") {
+            // handle status update
+            // skip for now
+            return;
+        }
+    }
+}
+
+setupAgentWS();
 
 const map = L.map("map", {
     rotate: true,
@@ -118,34 +171,33 @@ let flyToCalls = 0;
 
 
 function offsetBySegLen(zoom) {
-  const table = {
-    20: 220,
-    19: 200,
-    18: 170,
-    16: 120
-  };
-  return table[zoom] ?? 150;
+    const table = {
+        20: 220,
+        19: 200,
+        18: 170,
+        16: 120
+    };
+    return table[zoom] ?? 150;
 }
 
 
 function offsetCenterByHeading(latlng, zoom, headingDeg, offsetPx) {
-  // latlng to pixel at zoom
-  const p = map.project(latlng, zoom);
+    // latlng to pixel at zoom
+    const p = map.project(latlng, zoom);
 
-  // Heading
-  const rad = headingDeg * Math.PI / 180;
+    // Heading
+    const rad = headingDeg * Math.PI / 180;
 
-  // In screen/world pixel coords:
-  // x grows right, y grows down
-  const dx = Math.sin(rad) * offsetPx;
-  const dy = -Math.cos(rad) * offsetPx;    // minus because y down
+    // In screen/world pixel coords:
+    // x grows right, y grows down
+    const dx = Math.sin(rad) * offsetPx;
+    const dy = -Math.cos(rad) * offsetPx;    // minus because y down
 
-  const p2 = L.point(p.x + dx, p.y + dy);
+    const p2 = L.point(p.x + dx, p.y + dy);
 
-  // back to latlng
-  return map.unproject(p2, zoom);
+    // back to latlng
+    return map.unproject(p2, zoom);
 }
-
 
 
 function onFlyFinished() {
@@ -306,55 +358,55 @@ function logZoomMessage(text) {
 }
 
 function updateZoomModeDual(segShortM, segLongM) {
-  const dL = Math.max(50, Math.min(6500, segLongM));
-  const dS = segShortM;
+    const dL = Math.max(50, Math.min(6500, segLongM));
+    const dS = segShortM;
 
-  const ZOOMS = [19, 18, 17, 16];
+    const ZOOMS = [19, 18, 17, 16];
 
-  // thresholds based on LONG (stable)
-  const ENTER_L = [-Infinity, 856, 1719, 2997];
-  const EXIT_L  = [1427, 2866, 4994, Infinity];
+    // thresholds based on LONG (stable)
+    const ENTER_L = [-Infinity, 856, 1719, 2997];
+    const EXIT_L = [1427, 2866, 4994, Infinity];
 
-  // maneuver override based on SHORT (only zoom IN)
-  const MANEUVER_ENTER = 51;  // if short is very small zoom in one step
-  const MANEUVER_EXIT  = 90;  // release override when short is larger again
+    // maneuver override based on SHORT (only zoom IN)
+    const MANEUVER_ENTER = 51;  // if short is very small zoom in one step
+    const MANEUVER_EXIT = 90;  // release override when short is larger again
 
-  const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
-  const COOLDOWN_MS = 1500;
+    const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    const COOLDOWN_MS = 1500;
 
-  // base update from LONG with hysteresis
-  if (now - lastZoomChangeMs >= COOLDOWN_MS) {
-    const prev = zoomMode;
+    // base update from LONG with hysteresis
+    if (now - lastZoomChangeMs >= COOLDOWN_MS) {
+        const prev = zoomMode;
 
-    if (dL > EXIT_L[zoomMode] && zoomMode < ZOOMS.length - 1)
-        zoomMode++; // zoom OUT
-    else if (dL < ENTER_L[zoomMode] && zoomMode > 0)
-        zoomMode--; // zoom IN
+        if (dL > EXIT_L[zoomMode] && zoomMode < ZOOMS.length - 1)
+            zoomMode++; // zoom OUT
+        else if (dL < ENTER_L[zoomMode] && zoomMode > 0)
+            zoomMode--; // zoom IN
 
-    if (zoomMode !== prev) {
-      lastZoomChangeMs = now;
-      logZoomMessage(`Zoom ${ZOOMS[prev]} → ${ZOOMS[zoomMode]} | long ${segLongM.toFixed(1)} m`);
+        if (zoomMode !== prev) {
+            lastZoomChangeMs = now;
+            logZoomMessage(`Zoom ${ZOOMS[prev]} → ${ZOOMS[zoomMode]} | long ${segLongM.toFixed(1)} m`);
+        }
     }
-  }
 
-  // maneuver override: allow only zoom IN (more detailed)
-  // store a separate flag for override
-  if (typeof updateZoomModeDual.maneuver === "undefined") updateZoomModeDual.maneuver = false;
+    // maneuver override: allow only zoom IN (more detailed)
+    // store a separate flag for override
+    if (typeof updateZoomModeDual.maneuver === "undefined") updateZoomModeDual.maneuver = false;
 
-  if (!updateZoomModeDual.maneuver && dS < MANEUVER_ENTER) {
-    updateZoomModeDual.maneuver = true;
-  } else if (updateZoomModeDual.maneuver && dS > MANEUVER_EXIT) {
-    updateZoomModeDual.maneuver = false;
-  }
+    if (!updateZoomModeDual.maneuver && dS < MANEUVER_ENTER) {
+        updateZoomModeDual.maneuver = true;
+    } else if (updateZoomModeDual.maneuver && dS > MANEUVER_EXIT) {
+        updateZoomModeDual.maneuver = false;
+    }
 
-  let effectiveMode = zoomMode;
+    let effectiveMode = zoomMode;
 
-  if (updateZoomModeDual.maneuver) {
-    // zoom in by 1 step, but not beyond mode 0
-    effectiveMode = Math.max(0, zoomMode - 1);
-  }
+    if (updateZoomModeDual.maneuver) {
+        // zoom in by 1 step, but not beyond mode 0
+        effectiveMode = Math.max(0, zoomMode - 1);
+    }
 
-  return ZOOMS[effectiveMode];
+    return ZOOMS[effectiveMode];
 }
 
 
@@ -509,58 +561,6 @@ function stopStatusPolling() {
     }
 }
 
-function startStatusPolling(requestId) {
-    stopStatusPolling();
-
-    statusTimer = setInterval(async () => {
-        try {
-            const st = await fetchStatus(requestId);
-
-            // Still waiting: keep polling
-            if (st.status === "queued" || st.status === "created") return;
-
-            // Done: stop polling
-            stopStatusPolling();
-
-            if (st.status === "matched") {
-                viewMode = "match";
-                targetMatchId = st.match_id;
-                targetAgentId = st.agent_id || null;
-
-                setMsg(
-                    `Matched.\n` +
-                    `match_id = ${targetMatchId}\n` +
-                    `Loading match view...`
-                );
-
-                // Start rendering loops for the match
-                startViewLoops();
-
-            } else if (st.status === "not_matched") {
-                viewMode = "agent";
-                targetAgentId = st.agent_id;
-
-                setMsg(
-                    `No match.\n` +
-                    `agent_id = ${targetAgentId}\n` +
-                    `Showing your agent...`
-                );
-
-                // Start rendering loops for the agent-only view
-                startViewLoops();
-
-            } else {
-                setMsg(`Unknown status:\n${JSON.stringify(st, null, 2)}`);
-            }
-
-        } catch (e) {
-            // Hard error: stop; user needs to fix backend endpoint.
-            stopStatusPolling();
-            setMsg(`Error while polling status:\n${e.message}`);
-        }
-    }, 300);
-}
-
 
 //clear old my view layers
 
@@ -588,14 +588,20 @@ function clearMyViewLayers() {
 }
 
 
-async function updateMyPosition() {
+async function updateMyPosition(data) {
     if (viewMode !== "match" && viewMode !== "agent") return;
 
-    const data = await fetchJsonNoCache("positions.json");
-
     if (viewMode === "match") {
-        const sims = Array.isArray(data.sims) ? data.sims : [];
-        const s = sims.find(x => String(x.sim_id) === String(targetMatchId));
+        const frame = data?.frame;
+        if (!frame) return;
+
+        const s = frame;
+
+
+        if (targetMatchId == null && s.sim_id != null) targetMatchId = s.sim_id;
+
+
+        if (targetMatchId != null && String(s.sim_id) !== String(targetMatchId)) return;
         if (!s) return;
 
         // Show BOTH markers in match view (driver + walker).
@@ -613,7 +619,7 @@ async function updateMyPosition() {
             myWalkerDIdx = Number.isInteger(s.walker.dIdx) ? s.walker.dIdx : 0;
 
             if (createdKind === "walker") {
-                const { heading, segShortM, segLongM } =
+                const {heading, segShortM, segLongM} =
                     headingAndSegLens(walkerRoutePoints, myWalkerPIdx, 5, 30);
                 const zoom = zoomFromSegLen(segShortM, segLongM);
                 followWithRotation(latlng, heading, zoom, segShortM);
@@ -631,7 +637,7 @@ async function updateMyPosition() {
             }
             myDriverIdx = Number.isInteger(s.driver.idx) ? s.driver.idx : 0;
             if (createdKind === "driver") {
-                const { heading, segShortM, segLongM } =
+                const {heading, segShortM, segLongM} =
                     headingAndSegLens(driverRoutePoints, myDriverIdx, 20, 60);
                 const zoom = zoomFromSegLen(segShortM, segLongM);
                 followWithRotation(latlng, heading, zoom, segShortM);
@@ -684,10 +690,10 @@ function sliceInclusive(points, a, b) {
     return points.slice(a, b + 1);
 }
 
-async function updateMyRoutes() {
+async function updateMyRoutes(data) {
     if (viewMode !== "match") return;
 
-    const data = await fetchJsonNoCache("routes.json");
+
     const routes = Array.isArray(data.routes) ? data.routes : [];
     const r = routes.find(x => String(x.match_id) === String(targetMatchId));
     if (!r) return;
@@ -794,38 +800,6 @@ function stopViewLoops() {
     }
 }
 
-function startViewLoops() {
-    // When we switch from create -> match/agent, we want to hide create preview layers
-    // and focus only on the target.
-    stopViewLoops();
-    clearMyViewLayers();
-
-    // Optional: disable create buttons to prevent multiple requests
-    btnWalker.disabled = true;
-    btnDriver.disabled = true;
-    btnConfirm.disabled = true;
-    btnCreate.disabled = true;
-    showFollowButtons();
-
-    // Positions update: frequent
-    posTimer = setInterval(() => {
-        updateMyPosition().catch(() => {
-        });
-    }, 200);
-
-    // Routes update: slightly slower
-    routesTimer = setInterval(() => {
-        updateMyRoutes().catch(() => {
-        });
-    }, 400);
-
-    // Kick immediately
-    updateMyPosition().catch(() => {
-    });
-    updateMyRoutes().catch(() => {
-    });
-}
-
 
 btnWalker.onclick = () => {
     if (viewMode !== "create") return;
@@ -898,40 +872,16 @@ btnCreate.onclick = async () => {
 
         setMsg("Sending create request...");
 
-        const res = await fetch("/create_agent", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify(payload)
-        });
-
-        if (!res.ok) {
-            const txt = await res.text();
-            throw new Error(`HTTP ${res.status}: ${txt}`);
+        if (!wsReady) {
+            setupAgentWS();
         }
 
-        const data = await res.json();
-        const requestId = data.request_id;
-        if (!requestId) {
-            throw new Error(`No request_id in response: ${JSON.stringify(data)}`);
-        } else {
-            history.replaceState(null, "", "?request_id=" + requestId);
+        if (!wsReady) {
+            setMsg("WS not connected yet.");
+            return;
         }
 
-        createdKind = kind;
-
-        setMsg(
-            `Request accepted.\n` +
-            `request_id = ${requestId}\n` +
-            `Waiting for match...`
-        );
-        if (startMarker) {
-            map.removeLayer(startMarker);
-            startMarker = null;
-        }
-        clearPreview();
-
-        // After submit, we are still in create mode but waiting; we do status polling now.
-        startStatusPolling(requestId);
+        agentWS.send(JSON.stringify({type: "create_request", payload}));
 
     } catch (e) {
         // On error, re-enable selection so the user can try again.

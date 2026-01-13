@@ -40,7 +40,7 @@ function setupWebSocket() {
 setupWebSocket();
 
 // map setup
-const map = L.map("map");
+let map = L.map("map");
 
 requestAnimationFrame(() => {
     map.setView([51.2562, 7.1508], 12);
