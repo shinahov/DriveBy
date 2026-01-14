@@ -53,7 +53,7 @@ async def broadcaster_by_id(app: web.Application):
 
     while True:
         request_id, event = await q.get()
-        print("broadcaster_by_id got", request_id, event.get("type"))
+        #print("broadcaster_by_id got", request_id, event.get("type"))
 
         msg = json.dumps(event)
 
@@ -137,11 +137,6 @@ async def ws_agent_handler(request: web.Request) -> web.WebSocketResponse:
     request_id = request.query.get("request_id")
     if request_id:
         add_subscriber(request_id, ws)
-        await ws.send_str(json.dumps({
-            "type": "status",
-            "request_id": request_id,
-            "status": "subscribed"
-        }))
 
     try:
         async for msg in ws:
@@ -165,15 +160,17 @@ async def ws_agent_handler(request: web.Request) -> web.WebSocketResponse:
                         "payload": payload
                     })
 
-                    await ws.send_str(json.dumps({
-                        "type": "created",
-                        "request_id": request_id
-                    }))
+                    await broadcast_status(request_id, "queued")
                     continue
                 if t == "subscribe":
                     req_id = data.get("request_id")
 
                     add_subscriber(req_id, ws)
+                    last_r = request.app.get(
+                        "last_routes_by_req",
+                        {}).get(request_id)
+                    if last_r is not None:
+                        await ws.send_str(json.dumps({"type": "routes", "data": last_r}))
                     await ws.send_str(json.dumps({
                          "type": "status",
                          "request_id": req_id,
@@ -227,6 +224,7 @@ async def on_startup(app: web.Application):
     app["pub_q_by_id"] = asyncio.Queue(maxsize=10)
     app["global_ws"] = set()
     app["subscribers"] = subscribers
+    app["last_routes_by_req"] = {}
 
     loop = asyncio.get_running_loop()
     start_simulation(app, loop)

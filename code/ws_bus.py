@@ -17,8 +17,18 @@ async def publish_by_id(app: web.Application, request_id: str, event: Dict[str, 
             q.task_done()
         except asyncio.QueueEmpty:
             pass
-    print("publish_by_id", request_id, "subs?", request_id in subs, "qsize", q.qsize())
+    #print("publish_by_id", request_id, "subs?", request_id in subs, "qsize", q.qsize())
+    #print("event:", event)
     await q.put((request_id, event))
+
+
+async def send_status(app: web.Application, request_id: str, status: str, **extra) -> None:
+    event = {"type": "status", "status": status, "request_id": request_id}
+    event.update(extra)
+    await publish_by_id(app, request_id, event)
+
+
+
 async def publish(app: web.Application, event: Dict[str, Any]) -> None:
     q: asyncio.Queue = app["pub_q"]
 

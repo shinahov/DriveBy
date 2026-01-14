@@ -46,10 +46,36 @@ function setupAgentWS(requestId = null) {
         }
 
         if (msg.type === "status") {
-            // handle status update
-            // skip for now
+            const st = msg;
+
+            if (st.status === "queued") {
+                setMsg(`Queued.\nrequest_id=${st.request_id}`);
+                return;
+            }
+
+            if (st.status === "not_matched") {
+                viewMode = "agent";
+                targetAgentId = st.agent_id;
+                targetMatchId = null;
+
+                setMsg(`No match.\nagent_id=${targetAgentId}`);
+                return;
+            }
+
+            if (st.status === "matched") {
+                viewMode = "match";
+                targetMatchId = st.match_id;
+                targetAgentId = st.agent_id ?? null;
+
+                setMsg(`Matched.\nmatch_id=${targetMatchId}`);
+                return;
+            }
+
+            // optional: subscribed etc
+            console.log("unhandled status:", st.status, st);
             return;
         }
+
     }
 }
 

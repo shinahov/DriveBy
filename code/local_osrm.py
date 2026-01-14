@@ -16,7 +16,7 @@ from RouteBase import LatLon, DriverRoute, WalkerRoute, RouteBase
 from Match import Match, MatchLight
 from AgentState import AgentState
 from MatchSimulation import MatchSimulation, Phase
-from ws_bus import publish, publish_by_id
+from ws_bus import publish, publish_by_id, send_status
 
 #from realtime_runner import *
 
@@ -621,7 +621,7 @@ def handle_req(req, offset: float):
     payload = req.get("payload", {})
 
     agent = None
-    print(f"new {payload['type']} agent", payload["start"], payload["dest"])
+    #print(f"new {payload['type']} agent", payload["start"], payload["dest"])
     start = (payload["start"]["lat"], payload["start"]["lon"])
     dest = (payload["dest"]["lat"], payload["dest"]["lon"])
     if payload["type"] == "driver":
@@ -685,19 +685,30 @@ def process_new_agent(kind: str,
                       agent_id_to_request_id: dict,
                       handler,
                       req_id: str,
-                      min_saving_m: float) -> None:
+                      min_saving_m: float) -> dict:
 
     if kind == "driver":
         matches_new, _, _ = create_matches(
             [new_agent], walker_agent_list, now_t=t, min_saving_m=min_saving_m)
         matches_sim_list.extend(matches_new)
         agent_id_to_request_id[new_agent.agent_id] = req_id
+
         if not matches_new:
             driver_agent_list.append(new_agent)
-            return
+            return {"status": "not_matched",
+                    "req_id": req_id,
+                    "agent_id": new_agent.agent_id}
         ms = matches_new[0]
         partner_req_id = agent_id_to_request_id.get(ms.walker_agent.agent_id)#
-        return
+        return {
+            "status": "matched",
+            "req_id": req_id,
+            "agent_id": new_agent.agent_id,
+            "match_id": ms.match_id,
+            "partner_req_id": partner_req_id,
+            "partner_agent_id": ms.walker_agent.agent_id,
+            "match_sim": ms
+        }
 
     if kind == "walker":
         matches_new, _, _ = create_matches(
@@ -706,10 +717,18 @@ def process_new_agent(kind: str,
         agent_id_to_request_id[new_agent.agent_id] = req_id
         if not matches_new:
             walker_agent_list.append(new_agent)
-            return
+            return {"status": "not_matched", "req_id": req_id, "agent_id": new_agent.agent_id}
         ms = matches_new[0]
         partner_req_id = agent_id_to_request_id.get(ms.driver_agent.agent_id)
-        return
+        return {
+            "status": "matched",
+            "req_id": req_id,
+            "agent_id": new_agent.agent_id,
+            "match_id": ms.match_id,
+            "partner_req_id": partner_req_id,
+            "partner_agent_id": ms.driver_agent.agent_id,
+            "match_sim": ms
+        }
 
     raise ValueError(f"Unknown kind: {kind}")
 
@@ -782,7 +801,7 @@ def start_simulation(app: web.Application, loop: asyncio.AbstractEventLoop):
             routes_changed = False
             for req in drain_create_queue(app["create_q"]):
                 req_id, new_agent, kind = handle_req(req, offset=t)
-                process_new_agent(
+                res = process_new_agent(
                     kind=kind,
                     new_agent=new_agent,
                     t=t,
@@ -794,6 +813,56 @@ def start_simulation(app: web.Application, loop: asyncio.AbstractEventLoop):
                     req_id=req_id,
                     min_saving_m=min_saving_m
                 )
+                if res["status"] == "not_matched":
+                    asyncio.run_coroutine_threadsafe(
+                        send_status(app,
+                                    res["req_id"],
+                                    "not_matched",
+                                    agent_id=res["agent_id"]),
+                        loop
+                    )
+
+
+
+
+                elif res["status"] == "matched":
+                    ms = res["match_sim"]
+
+                    asyncio.run_coroutine_threadsafe(
+                        send_status(app, res["req_id"],
+                                    "matched",
+                                    match_id=res["match_id"],
+                                    agent_id=res["agent_id"]),
+                        loop
+                    )
+
+
+                    if res["partner_req_id"] is not None:
+                        asyncio.run_coroutine_threadsafe(
+                            send_status(app,
+                                        res["partner_req_id"],
+                                        "matched",
+                                        match_id=res["match_id"],
+                                        agent_id=res["partner_agent_id"]),
+                            loop
+                        )
+
+                    routes_for_this_match = build_routes_payload([ms], version=t)
+                    event = {"type": "routes", "data": routes_for_this_match}
+                    app["last_routes_by_req"][res["req_id"]] = routes_for_this_match
+                    asyncio.run_coroutine_threadsafe(
+                        publish_by_id(app, res["req_id"], event),
+                        loop
+                    )
+                    if res["partner_req_id"] is not None:
+                        app["last_routes_by_req"][res["partner_req_id"]] = routes_for_this_match
+                        asyncio.run_coroutine_threadsafe(
+                            publish_by_id(app, res["partner_req_id"], event),
+                            loop
+                        )
+
+
+
                 routes_changed = True
 
             # Update unmatched drivers
