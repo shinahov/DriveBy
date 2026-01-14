@@ -226,7 +226,7 @@ def create_driver_agent(start: LatLon, dest: LatLon, offset: float) -> AgentStat
         duration=r["total_time"],
         duration_list=r["seg_time"],
         cum_time_s=r["cum_time"],
-        profile="walking",
+        profile="driving",
         geometry_latlon=r["geometry"],
         seg_dist_m=r["seg_dist"],
         cum_dist_m=r["cum_dist"],
@@ -292,15 +292,22 @@ def create_walkers(center_start: LatLon,
 # pickup / dropoff selection
 
 
-def find_pickup_light(driver: RouteBase, walker: RouteBase, k: int = 15):
-    pts = driver.geometry_latlon
-    cand_idx = topk_by_haversine(pts, walker.start, k)
+def find_pickup_light(driver: AgentState, walker_pos: LatLon, k: int = 15):
+    pts = driver.route.geometry_latlon
+    start_index = driver.idx
+
+    tail = pts[start_index:]
+    if not tail:
+        raise RuntimeError("Driver at end")
+
+    cand_local = topk_by_haversine(tail, walker_pos, k)
+    cand_idx = [start_index + j for j in cand_local]
 
     best_i = None
     best_m = float("inf")
     best_s = float("inf")
     for i in cand_idx:
-        m, s = walk_fast(walker.start, pts[i])  # start -> pickup
+        m, s = walk_fast(walker_pos, pts[i])  # pos -> pickup
         if m < best_m:
             best_m, best_s, best_i = m, s, i
     if best_i is None:
@@ -308,20 +315,20 @@ def find_pickup_light(driver: RouteBase, walker: RouteBase, k: int = 15):
     return pts[best_i], best_m, best_s, best_i
 
 
-def find_dropoff_light(driver: DriverRoute, walker: WalkerRoute, pickup_i: int, k: int = 10):
-    pts = driver.geometry_latlon
+def find_dropoff_light(driver: AgentState, walker_dest: LatLon, pickup_i: int, k: int = 10):
+    pts = driver.route.geometry_latlon
     tail = pts[pickup_i + 1:]
     if not tail:
         raise RuntimeError("Pickup at end")
 
-    cand_local = topk_by_haversine(tail, walker.dest, k)
+    cand_local = topk_by_haversine(tail, walker_dest, k)
     cand_idx = [pickup_i + 1 + j for j in cand_local]
 
     best_i = None
     best_m = float("inf")
     best_s = float("inf")
     for i in cand_idx:
-        m, s = walk_fast(pts[i], walker.dest)  # dropoff -> dest
+        m, s = walk_fast(pts[i], walker_dest)  # dropoff -> dest
         if m < best_m:
             best_m, best_s, best_i = m, s, i
     if best_i is None:
@@ -382,9 +389,9 @@ def is_within_dist(p1, p2, max_dist_m):
     return haversine_m(p1, p2) <= max_dist_m
 
 
-def build_match_light(driver: DriverRoute, walker: WalkerRoute) -> MatchLight:
-    pickup, pick_m, pick_s, pi = find_pickup_light(driver, walker)
-    dropoff, drop_m, drop_s, di = find_dropoff_light(driver, walker, pi)
+def build_match_light(driver: AgentState, walker: AgentState) -> MatchLight:
+    pickup, pick_m, pick_s, pi = find_pickup_light(driver, walker.get_pos())
+    dropoff, drop_m, drop_s, di = find_dropoff_light(driver, walker.route.dest, pi)
     if di <= pi:
         raise RuntimeError("Dropoff before pickup")
 
@@ -396,13 +403,21 @@ def build_match_light(driver: DriverRoute, walker: WalkerRoute) -> MatchLight:
     )
 
 
-def finalize_match(driver: DriverRoute, walker: WalkerRoute, ml: MatchLight) -> Match:
+def finalize_match(driver_agent: AgentState, walker_agent: AgentState, ml: MatchLight) -> Match:
+    driver = driver_agent.route
+
+    walker_pos = walker_agent.get_pos()
+    walker_dest = walker_agent.route.dest
+
+    # baseline remaining walk from now -> dest (saving must be based on current state)
+    baseline_walk = build_walker_route_full(walker_pos, walker_dest)
+
     # expensive only once
-    walk_to = build_walker_route_full(walker.start, ml.pickup)
+    walk_to = build_walker_route_full(walker_pos, ml.pickup)
     if not is_within_dist(walk_to.dest, ml.pickup, 30.0):
         raise RuntimeError("Pickup endpoint too far")
 
-    walk_from = build_walker_route_full(ml.dropoff, walker.dest)
+    walk_from = build_walker_route_full(ml.dropoff, walker_dest)
     if not is_within_dist(walk_from.start, ml.dropoff, 30.0):
         raise RuntimeError("Dropoff start too far")
 
@@ -413,11 +428,17 @@ def finalize_match(driver: DriverRoute, walker: WalkerRoute, ml: MatchLight) -> 
     ride_m = driver.cum_dist_m[di] - driver.cum_dist_m[pi]
     ride_s = driver.cum_time_s[di] - driver.cum_time_s[pi]
 
-    saving_m = walker.dist - total_walk_m
-    saving_s = walker.duration - total_walk_s
+    # driver ETA from NOW (driver may already be mid-route)
+    t0 = driver.cum_time_s[driver_agent.idx]
+    pickup_eta_from_now = driver.cum_time_s[pi] - t0
+    dropoff_eta_from_now = driver.cum_time_s[di] - t0
+
+    saving_m = baseline_walk.dist - total_walk_m
+    saving_s = baseline_walk.duration - total_walk_s
 
     return Match(
-        driver=driver, walker=walker,
+        driver=driver,
+        walker=baseline_walk,  # dest baseline route
         walk_route_to_pickup=walk_to,
         walk_route_from_dropoff=walk_from,
         pickup=ml.pickup, dropoff=ml.dropoff,
@@ -432,9 +453,10 @@ def finalize_match(driver: DriverRoute, walker: WalkerRoute, ml: MatchLight) -> 
         ride_duration_seconds=ride_s,
         saving_dist_meters=saving_m,
         saving_duration_seconds=saving_s,
-        driver_pickup_eta_s=driver.cum_time_s[pi],
-        driver_dropoff_eta_s=driver.cum_time_s[di],
+        driver_pickup_eta_s=pickup_eta_from_now,
+        driver_dropoff_eta_s=dropoff_eta_from_now,
     )
+
 
 
 def valid_match(match: Match, min_saving_m: float = 800.0) -> bool:
@@ -446,43 +468,59 @@ def valid_match(match: Match, min_saving_m: float = 800.0) -> bool:
     return True
 
 
-def best_match_(drivers: List[AgentState], walker: AgentState, min_saving_m: float = 800.0):
+def best_match_(drivers: List[AgentState], walker_agent: AgentState, min_saving_m: float = 800.0):
     best_light = None
     best_driver = None
     best_arrival = float("inf")
 
+    walker_pos = walker_agent.get_pos()
+    walker_dest = walker_agent.route.dest
+
+    # baseline remaining walk distance/time from NOW -> dest
+    base_m, base_s = walk_fast(walker_pos, walker_dest)
+
     for d_agent in drivers:
         try:
-            ml = build_match_light(d_agent.route, walker.route)
+            ml = build_match_light(d_agent, walker_agent)
 
-            # quick validity check using light totals
-            total_walk_s = ml.pick_walk_s + ml.drop_walk_s
+            # ETA from NOW
+            t0 = d_agent.route.cum_time_s[d_agent.idx]
+            pickup_eta = d_agent.route.cum_time_s[ml.pickup_index] - t0
+            dropoff_eta = d_agent.route.cum_time_s[ml.dropoff_index] - t0
+
+            # sanity: pickup must be reachable in future
+            if pickup_eta < 0 or dropoff_eta < 0:
+                continue
+
+            # saving check (from current situation)
             total_walk_m = ml.pick_walk_dist_m + ml.drop_walk_dist_m
-
-            saving_m = walker.route.dist - total_walk_m
+            saving_m = base_m - total_walk_m
             if saving_m < min_saving_m:
                 continue
 
-            if ml.pick_walk_s > d_agent.route.cum_time_s[ml.pickup_index]:
+            # walker must arrive before driver at pickup
+            if ml.pick_walk_s > pickup_eta:
                 continue
 
-            arrival = d_agent.route.cum_time_s[ml.dropoff_index] + ml.drop_walk_s
+            arrival = dropoff_eta + ml.drop_walk_s
             if arrival < best_arrival:
                 best_arrival = arrival
                 best_light = ml
                 best_driver = d_agent
+
         except RuntimeError:
             continue
 
     if best_driver is None:
         return None, None
 
-    # expensive finalize only once
     try:
-        m = finalize_match(best_driver.route, walker.route, best_light)
+        m = finalize_match(best_driver, walker_agent, best_light)
+
         return m, best_driver
     except RuntimeError:
         return None, None
+
 
 
 def build_routes_payload(sims: List[MatchSimulation], version: float) -> dict:
