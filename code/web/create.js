@@ -67,6 +67,8 @@ function setupAgentWS(requestId = null) {
                 targetMatchId = st.match_id;
                 targetAgentId = st.agent_id ?? null;
 
+                showFollowButtons();
+
                 setMsg(`Matched.\nmatch_id=${targetMatchId}`);
                 return;
             }
@@ -907,7 +909,9 @@ btnCreate.onclick = async () => {
             return;
         }
 
+        createdKind = kind;
         agentWS.send(JSON.stringify({type: "create_request", payload}));
+
 
     } catch (e) {
         // On error, re-enable selection so the user can try again.

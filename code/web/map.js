@@ -507,7 +507,9 @@ speedRange.oninput = () => {
 };
 
 speedRange.onchange = () => {
+  const v = Number(speedRange.value);
   fetch("/speed?value=" + speedRange.value);
+  ws.send(JSON.stringify({type: "speed", value: v}));
   speedBox.style.display = "none";
 };
 

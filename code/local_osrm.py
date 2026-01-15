@@ -833,7 +833,7 @@ def start_simulation(app: web.Application, loop: asyncio.AbstractEventLoop):
         #webbrowser.open("http://127.0.0.1:8000/web/map.html?v=" + str(time.time()))
 
         t = 0.0
-        dt = 1.0
+        dt = app["speed"]
         while True:
             # Handle incoming create-requests
             routes_changed = False
@@ -948,6 +948,7 @@ def start_simulation(app: web.Application, loop: asyncio.AbstractEventLoop):
                 )
 
             #dt = handler.speed
+            dt = app["speed"]
             t += dt
             time.sleep(0.05)
 

@@ -207,8 +207,20 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
 
     try:
         async for msg in ws:
-            # for now, we just ignore incoming messages
-            pass
+            if msg.type != WSMsgType.TEXT:
+                continue
+            try:
+                data = json.loads(msg.data)
+            except json.JSONDecodeError:
+                await ws.send_str(json.dumps({"error": "invalid JSON"}))
+                continue
+            if data.get("type") == "speed":
+                v = float(data.get("value", 1.0))
+                print("set speed to", v)
+
+                request.app["speed"] = v
+
+
     finally:
         request.app["global_ws"].discard(ws)
 
@@ -225,6 +237,7 @@ async def on_startup(app: web.Application):
     app["global_ws"] = set()
     app["subscribers"] = subscribers
     app["last_routes_by_req"] = {}
+    app["speed"] = 1.0
 
     loop = asyncio.get_running_loop()
     start_simulation(app, loop)
