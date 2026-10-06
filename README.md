@@ -50,6 +50,34 @@ So the driver does not fully replace walking — the goal is to reduce walking t
   - routes update slower (e.g. 400ms)
 - Matching logic is currently “good enough for a prototype”, but not yet designed for high load.
 
+## Run it
+1. Start both OSRM servers (Docker Desktop must be running): `code\start_osrm.bat`
+   - driving: `C:\osrm\wup_duess_driving` on port 5000
+   - walking: `C:\osrm\wup_duess_walking` on port 5001
+2. Install Python packages once: `py -m pip install -r code\requirements.txt`
+3. Start the server from the `code` folder: `py main.py`
+4. Open http://127.0.0.1:8000 (overview) and click "Add agent".
+
+## Tests
+From the `code` folder: `py -m pytest tests`
+The tests use a fake OSRM (`tests/fake_osrm.py`), so Docker does not need to run.
+
+## Code structure (`code/`)
+| File | What it does |
+| --- | --- |
+| `main.py` | entry point, starts the web server |
+| `config.py` | ports, OSRM URLs, matching thresholds |
+| `server.py` | aiohttp server: pages, WebSockets `/ws` and `/ws_agent` |
+| `ws_bus.py` | queues that push messages to the browsers |
+| `simulation.py` | simulation loop (own thread): handles new agents, moves everyone, sends updates |
+| `matching.py` | pickup/dropoff search, best driver, creating matches |
+| `agents.py` | creating driver/walker agents from OSRM routes |
+| `osrm_client.py` | HTTP calls to OSRM (+ cache) |
+| `payloads.py` | JSON messages sent to the frontend |
+| `geo.py` | distance and geometry helpers |
+| `RouteBase.py`, `AgentState.py`, `Match.py`, `MatchSimulation.py` | data classes |
+| `web/` | Leaflet frontend (`map.html` overview, `create.html` single user) |
+
 ## What I want to do next
 ### 1) Fix UI / simulation bugs first
 Right now the UI can feel a bit clunky and buggy (state switches, leftover → matched transitions, timing issues).  

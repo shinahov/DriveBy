@@ -2,13 +2,13 @@ import asyncio
 import json
 import uuid
 from queue import Queue
-from dataclasses import dataclass, field
-from typing import Any, Dict, Set
+from typing import Dict, Set
 
 from pathlib import Path
 from aiohttp import web, WSMsgType
 
-from local_osrm import start_simulation
+import config
+from simulation import start_simulation
 
 
 def create_uuid() -> str:
@@ -237,20 +237,21 @@ async def on_startup(app: web.Application):
     app["global_ws"] = set()
     app["subscribers"] = subscribers
     app["last_routes_by_req"] = {}
-    app["speed"] = 1.0
+    app["speed"] = config.DEFAULT_SPEED
 
     loop = asyncio.get_running_loop()
-    start_simulation(app, loop)
+    app["simulation"] = start_simulation(app, loop)
 
 
 # Cleanup on shutdown
 async def on_cleanup(app: web.Application):
-    app['broadcaster_task'].cancel()
-    app['broadcaster_by_id_task'].cancel()
-    try:
-        await app['broadcaster_task']
-    except asyncio.CancelledError:
-        pass
+    app["simulation"].stop_event.set()
+    for key in ("broadcaster_task", "broadcaster_by_id_task"):
+        app[key].cancel()
+        try:
+            await app[key]
+        except asyncio.CancelledError:
+            pass
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -289,5 +290,4 @@ def create_app() -> web.Application:
 
 
 if __name__ == "__main__":
-    app = create_app()
-    web.run_app(app, host="127.0.0.1", port=8000)
+    web.run_app(create_app(), host=config.HOST, port=config.PORT)

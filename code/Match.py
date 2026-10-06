@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from RouteBase import LatLon, DriverRoute, WalkerRoute, RouteBase
+from RouteBase import LatLon, WalkerRoute, RouteBase
 
 
 @dataclass

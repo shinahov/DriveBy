@@ -46,7 +46,7 @@ class DriverRoute(RouteBase):
     #start: LatLon
     #dest: LatLon
     #dist: float
-    profile: str = "walking"
+    profile: str = "driving"
     nodes: Optional[List[int]] = None
 
 
@@ -55,5 +55,5 @@ class WalkerRoute(RouteBase):
     #start: LatLon
     #dest: LatLon
     #dist: float
-    profile: str = "driving"
+    profile: str = "walking"
     nodes: Optional[List[int]] = None

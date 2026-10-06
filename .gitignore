@@ -35,3 +35,4 @@ dist/
 
 #key
 *.txt
+!requirements.txt
