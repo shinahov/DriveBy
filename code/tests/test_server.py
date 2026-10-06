@@ -101,6 +101,23 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(frame["driver"]["req_id"], d_rid)
         await ws.close()
 
+    async def test_subscribe_later_replays_routes(self):
+        ws = await self.client.ws_connect("/ws_agent")
+        await ws.send_json({"type": "create_request", "payload": WALKER})
+        w_rid = (await wait_for(ws, is_status("queued")))["request_id"]
+        await wait_for(ws, is_status("not_matched", w_rid))
+        await ws.send_json({"type": "create_request", "payload": DRIVER})
+        await wait_for(ws, is_status("matched", w_rid))
+        await ws.close()
+
+        # e.g. page reload: a new connection subscribes to the old request_id
+        ws2 = await self.client.ws_connect("/ws_agent")
+        await ws2.send_json({"type": "subscribe", "request_id": w_rid})
+        msg = await wait_for(ws2, lambda m: m.get("type") in ("routes", "status"))
+        self.assertEqual(msg["type"], "routes")
+        self.assertEqual(len(msg["data"]["routes"]), 1)
+        await ws2.close()
+
     async def test_unknown_message_type(self):
         ws = await self.client.ws_connect("/ws_agent")
         await ws.send_json({"type": "nonsense"})

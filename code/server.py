@@ -168,7 +168,7 @@ async def ws_agent_handler(request: web.Request) -> web.WebSocketResponse:
                     add_subscriber(req_id, ws)
                     last_r = request.app.get(
                         "last_routes_by_req",
-                        {}).get(request_id)
+                        {}).get(req_id)
                     if last_r is not None:
                         await ws.send_str(json.dumps({"type": "routes", "data": last_r}))
                     await ws.send_str(json.dumps({
@@ -229,11 +229,11 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
 
 # Startup task to run the worker loop
 async def on_startup(app: web.Application):
-    app['pub_q'] = asyncio.Queue(maxsize=1)
+    app['pub_q'] = asyncio.Queue()
     app['broadcaster_task'] = asyncio.create_task(broadcaster(app))
     app["broadcaster_by_id_task"] = asyncio.create_task(broadcaster_by_id(app))
     app["create_q"] = Queue()
-    app["pub_q_by_id"] = asyncio.Queue(maxsize=10)
+    app["pub_q_by_id"] = asyncio.Queue()
     app["global_ws"] = set()
     app["subscribers"] = subscribers
     app["last_routes_by_req"] = {}

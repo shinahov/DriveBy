@@ -1,24 +1,26 @@
 import asyncio
 from typing import Any, Dict
+
 from aiohttp import web
 
+# Events marked droppable (positions, sent many times per second) are skipped
+# when this many messages are already waiting. Everything else (status, routes)
+# is never dropped.
+MAX_BACKLOG = 10
 
-async def publish_by_id(app: web.Application, request_id: str, event: Dict[str, Any]) -> None:
-    subs: Dict[str, set[web.WebSocketResponse]] = app["subscribers"]
-    q: asyncio.Queue = app["pub_q_by_id"]
 
-    if request_id not in subs:
+def _should_drop(q: asyncio.Queue, droppable: bool) -> bool:
+    return droppable and q.qsize() >= MAX_BACKLOG
+
+
+async def publish_by_id(app: web.Application, request_id: str, event: Dict[str, Any],
+                        droppable: bool = False) -> None:
+    """Send event to everyone subscribed to request_id."""
+    if request_id not in app["subscribers"]:
         return
-
-    # keep only latest event if queue is full
-    if q.full():
-        try:
-            q.get_nowait()
-            q.task_done()
-        except asyncio.QueueEmpty:
-            pass
-    #print("publish_by_id", request_id, "subs?", request_id in subs, "qsize", q.qsize())
-    #print("event:", event)
+    q: asyncio.Queue = app["pub_q_by_id"]
+    if _should_drop(q, droppable):
+        return
     await q.put((request_id, event))
 
 
@@ -28,16 +30,9 @@ async def send_status(app: web.Application, request_id: str, status: str, **extr
     await publish_by_id(app, request_id, event)
 
 
-
-async def publish(app: web.Application, event: Dict[str, Any]) -> None:
+async def publish(app: web.Application, event: Dict[str, Any], droppable: bool = False) -> None:
+    """Send event to all clients of the global /ws (the overview map)."""
     q: asyncio.Queue = app["pub_q"]
-
-    # keep only latest event if queue is full
-    if q.full():
-        try:
-            q.get_nowait()
-            q.task_done()
-        except asyncio.QueueEmpty:
-            pass
-
+    if _should_drop(q, droppable):
+        return
     await q.put(event)
