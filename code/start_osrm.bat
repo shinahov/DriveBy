@@ -20,7 +20,7 @@ echo --- Test Fussgaenger (5001) ---
 curl -s "http://localhost:5001/route/v1/walking/6.78,51.20;6.78,51.21?overview=false"
 echo.
 echo.
-echo Wenn beide Antworten "code":"Ok" enthalten: py realtime_runner.py
+echo Wenn beide Antworten "code":"Ok" enthalten: py main.py
 goto :eof
 
 :start
