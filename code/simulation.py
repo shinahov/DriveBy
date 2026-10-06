@@ -3,6 +3,7 @@ aiohttp event loop via asyncio.run_coroutine_threadsafe."""
 import asyncio
 import threading
 import time
+import traceback
 from queue import Empty, Queue
 from typing import Any, Dict
 
@@ -11,6 +12,7 @@ from aiohttp import web
 import config
 from agents import handle_req
 from matching import process_new_agent
+from MatchSimulation import Phase
 from payloads import build_routes_payload, build_snapshot_payload
 from ws_bus import publish, publish_by_id, send_status
 
@@ -31,7 +33,7 @@ async def dispatch_frames_by_req_id(app: web.Application, data: Dict[str, Any]) 
         event = {"type": "position", "data": {"t_s": t_s, "frame": frame}}
         for rid in (frame["walker"].get("req_id"), frame["driver"].get("req_id")):
             if rid is not None:
-                await publish_by_id(app, rid, event)
+                await publish_by_id(app, rid, event, droppable=True)
 
 
 class Simulation:
@@ -48,16 +50,25 @@ class Simulation:
         self.agent_id_to_request_id: Dict[str, str] = {}
         self.stop_event = threading.Event()
 
-    # ---- helpers
+    # ---- sending to the browsers (runs the coroutine on the aiohttp loop)
     def _send(self, coro) -> None:
         asyncio.run_coroutine_threadsafe(coro, self.loop)
+
+    def notify_status(self, request_id: str, status: str, **extra) -> None:
+        self._send(send_status(self.app, request_id, status, **extra))
+
+    def publish_all(self, event: dict, droppable: bool = False) -> None:
+        self._send(publish(self.app, event, droppable=droppable))
+
+    def publish_to(self, request_id: str, event: dict) -> None:
+        self._send(publish_by_id(self.app, request_id, event))
 
     def publish_initial_state(self) -> None:
         for sim in self.matches_sim_list:
             sim.update(0.0)
         routes = build_routes_payload(self.matches_sim_list, version=0.0)
         self.app["routes"] = routes
-        self._send(publish(self.app, {"type": "routes", "data": routes}))
+        self.publish_all({"type": "routes", "data": routes})
 
         data0 = build_snapshot_payload(
             t_s=0.0,
@@ -67,7 +78,7 @@ class Simulation:
             include_agent_id=False,
         )
         self.app["last_positions"] = data0
-        self._send(publish(self.app, {"type": "positions", "data": data0}))
+        self.publish_all({"type": "positions", "data": data0}, droppable=True)
 
     # ---- one request from the browser
     def handle_create_request(self, req: dict) -> None:
@@ -86,29 +97,67 @@ class Simulation:
         )
 
         if res["status"] == "not_matched":
-            self._send(send_status(self.app, res["req_id"], "not_matched",
-                                   agent_id=res["agent_id"]))
+            self.notify_status(res["req_id"], "not_matched", agent_id=res["agent_id"])
             return
 
         # matched: tell both sides, then send them the match routes
-        self._send(send_status(self.app, res["req_id"], "matched",
-                               match_id=res["match_id"], agent_id=res["agent_id"]))
+        self.notify_status(res["req_id"], "matched",
+                           match_id=res["match_id"], agent_id=res["agent_id"])
         if res["partner_req_id"] is not None:
-            self._send(send_status(self.app, res["partner_req_id"], "matched",
-                                   match_id=res["match_id"], agent_id=res["partner_agent_id"]))
+            self.notify_status(res["partner_req_id"], "matched",
+                               match_id=res["match_id"], agent_id=res["partner_agent_id"])
 
         routes_for_this_match = build_routes_payload([res["match_sim"]], version=self.t)
         event = {"type": "routes", "data": routes_for_this_match}
         for rid in (res["req_id"], res["partner_req_id"]):
             if rid is not None:
                 self.app["last_routes_by_req"][rid] = routes_for_this_match
-                self._send(publish_by_id(self.app, rid, event))
+                self.publish_to(rid, event)
+
+    # ---- finished matches / agents
+    def remove_finished(self) -> bool:
+        """Drop finished matches; their driver becomes free again if still driving.
+        Also drop unmatched agents that reached their destination.
+        Returns True if the set of matches changed."""
+        finished = [s for s in self.matches_sim_list if s.phase == Phase.DONE]
+        for sim in finished:
+            self.matches_sim_list.remove(sim)
+            w_rid = self.agent_id_to_request_id.pop(sim.walker_agent.agent_id, None)
+            if w_rid is not None:
+                self.notify_status(w_rid, "done", match_id=sim.match_id)
+
+            driver = sim.driver_agent
+            d_rid = self.agent_id_to_request_id.get(driver.agent_id)
+            if driver.done:
+                self.agent_id_to_request_id.pop(driver.agent_id, None)
+                if d_rid is not None:
+                    self.notify_status(d_rid, "done", match_id=sim.match_id)
+            else:
+                driver.assigned = False
+                self.driver_agent_list.append(driver)
+                if d_rid is not None:
+                    self.notify_status(d_rid, "not_matched", agent_id=driver.agent_id)
+
+        for lst in (self.driver_agent_list, self.walker_agent_list):
+            for a in [a for a in lst if a.done]:
+                lst.remove(a)
+                rid = self.agent_id_to_request_id.pop(a.agent_id, None)
+                if rid is not None:
+                    self.notify_status(rid, "done", agent_id=a.agent_id)
+
+        return bool(finished)
 
     # ---- one tick
     def step(self) -> None:
         routes_changed = False
         for req in drain_create_queue(self.app["create_q"]):
-            self.handle_create_request(req)
+            try:
+                self.handle_create_request(req)
+            except Exception as e:  # e.g. OSRM down, bad coordinates
+                traceback.print_exc()
+                rid = req.get("request_id")
+                if rid is not None:
+                    self.notify_status(rid, "error", message=str(e))
             routes_changed = True
 
         for a in self.driver_agent_list:
@@ -117,6 +166,9 @@ class Simulation:
             a.update_position(self.t)
         for sim in self.matches_sim_list:
             sim.update(self.t)
+
+        if self.remove_finished():
+            routes_changed = True
 
         data = build_snapshot_payload(
             t_s=self.t,
@@ -127,19 +179,23 @@ class Simulation:
             include_agent_id=True,
         )
         self.app["last_positions"] = data
-        self._send(publish(self.app, {"type": "positions", "data": data}))
+        self.publish_all({"type": "positions", "data": data}, droppable=True)
         self._send(dispatch_frames_by_req_id(self.app, data))
 
         if routes_changed:
             routes = build_routes_payload(self.matches_sim_list, version=self.t)
-            self._send(publish(self.app, {"type": "routes", "data": routes}))
+            self.app["routes"] = routes
+            self.publish_all({"type": "routes", "data": routes})
 
         self.t += self.app["speed"]
 
     def run(self) -> None:
         self.publish_initial_state()
         while not self.stop_event.is_set():
-            self.step()
+            try:
+                self.step()
+            except Exception:  # never let one bad tick kill the simulation
+                traceback.print_exc()
             time.sleep(config.TICK_SLEEP_S)
 
 
