@@ -6,7 +6,7 @@ OSRM_WALK = "http://localhost:5001"
 OSRM_TIMEOUT_S = 60
 
 # Web server
-HOST = "127.0.0.1"
+HOST = "0.0.0.0"         # reachable from other devices in the same WLAN (e.g. your phone)
 PORT = 8000
 
 # Matching

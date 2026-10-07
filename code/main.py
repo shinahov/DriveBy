@@ -7,7 +7,7 @@ from server import create_app
 
 
 def main():
-    print(f"Server: http://{config.HOST}:{config.PORT}")
+    print(f"Server: http://127.0.0.1:{config.PORT}  (phone: http://<laptop-ip>:{config.PORT}, see ipconfig)")
     web.run_app(create_app(), host=config.HOST, port=config.PORT)
 
 
