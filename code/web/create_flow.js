@@ -1,7 +1,8 @@
-// The "create an agent" panel: choose walker or driver, click START and DEST
-// on the map (each confirmed with "Confirm"), then "Create".
-//   isActive(): false once the agent exists -> clicks are ignored
-//   setMsg(text): shows a message in the panel
+// The "create an agent" part of the page:
+//   top:    KindPicker - icon of the agent type (walker / car), tap to switch
+//   bottom: tap START and DEST on the map (each confirmed with "Confirm"), then "Create"
+//   isActive(): false once the agent exists -> taps are ignored
+//   setMsg(text): shows a message in the bottom panel
 //   onCreate(payload): sends the request, returns false if that failed
 const destIcon = L.icon({
     iconUrl: "icons/dest.png",
@@ -10,6 +11,68 @@ const destIcon = L.icon({
     tooltipAnchor: [0, -12]
 });
 
+const KIND_ICONS = {walker: "icons/walker.png", driver: "icons/car.png"};
+
+// Round button at the top that shows the current agent type. Tap it -> both types
+// appear, the selected one is blue. Tap a type to select it, tap anywhere else to close.
+class KindPicker {
+    constructor(onChange) {
+        this.onChange = onChange;
+        this.value = "walker";
+        this.button = document.getElementById("kind-btn");
+        this.icon = document.getElementById("kind-icon");
+        this.menu = document.getElementById("kind-menu");
+        this.options = {
+            walker: document.getElementById("kind-walker"),
+            driver: document.getElementById("kind-driver"),
+        };
+
+        this.button.onclick = e => {
+            e.stopPropagation();  // otherwise the document click below closes it again
+            this.toggle();
+        };
+        for (const [kind, el] of Object.entries(this.options)) {
+            el.onclick = e => {
+                e.stopPropagation();
+                this.select(kind);
+            };
+        }
+        document.addEventListener("click", () => this.close());
+        this.render();
+    }
+
+    isOpen() {
+        return !this.menu.hidden;
+    }
+
+    toggle() {
+        if (this.button.disabled) return;
+        this.menu.hidden = !this.menu.hidden;
+    }
+
+    close() {
+        this.menu.hidden = true;
+    }
+
+    select(kind) {
+        this.value = kind;
+        this.render();
+        this.onChange(kind);
+    }
+
+    setEnabled(enabled) {
+        this.button.disabled = !enabled;
+        if (!enabled) this.close();
+    }
+
+    render() {
+        this.icon.src = KIND_ICONS[this.value];
+        for (const [kind, el] of Object.entries(this.options)) {
+            el.classList.toggle("selected", kind === this.value);
+        }
+    }
+}
+
 class CreateFlow {
     constructor(map, {isActive, setMsg, onCreate}) {
         this.map = map;
@@ -17,14 +80,11 @@ class CreateFlow {
         this.setMsg = setMsg;
         this.onCreate = onCreate;
 
+        this.kindPicker = new KindPicker(kind => this.setKind(kind));
         this.btn = {
-            walker: document.getElementById("btn-kind-walker"),
-            driver: document.getElementById("btn-kind-driver"),
             confirm: document.getElementById("btn-confirm"),
             create: document.getElementById("btn-create"),
         };
-        this.btn.walker.onclick = () => this.chooseKind("walker");
-        this.btn.driver.onclick = () => this.chooseKind("driver");
         this.btn.confirm.onclick = () => this.confirm();
         this.btn.create.onclick = () => this.create();
         map.on("click", ev => this.onMapClick([ev.latlng.lat, ev.latlng.lng]));
@@ -36,8 +96,8 @@ class CreateFlow {
     }
 
     reset() {
-        this.kind = null;            // "walker" | "driver"
-        this.step = "choose_kind";   // choose_kind | pick_start | pick_dest | ready
+        this.kind = this.kindPicker.value;   // "walker" | "driver"
+        this.step = "pick_start";            // pick_start | pick_dest | ready
         this.pendingPoint = null;    // clicked but not confirmed yet
         this.startPoint = null;
         this.destPoint = null;
@@ -48,17 +108,30 @@ class CreateFlow {
         this.clearPreview();
     }
 
-    chooseKind(kind) {
+    // the type can be changed at any time before "Create"; chosen points stay
+    setKind(kind) {
         if (!this.isActive()) return;
         this.kind = kind;
-        this.step = "pick_start";
-        this.pendingPoint = null;
-        this.btn.confirm.disabled = true;
-        this.btn.create.disabled = true;
-        this.setMsg(`${kind}: click map to select START, then Confirm.`);
+        this.showHint();
+    }
+
+    // what to do next, shown in the bottom panel
+    showHint() {
+        const who = this.kind === "driver" ? "Driver" : "Walker";
+        const hints = {
+            pick_start: "Tap the map to set START.",
+            pick_dest: "Tap the map to set DEST.",
+            ready: "Tap Create.",
+        };
+        const next = this.pendingPoint ? "Tap Confirm (or tap elsewhere to move it)." : hints[this.step];
+        this.setMsg(`${who}: ${next}`);
     }
 
     onMapClick(point) {
+        if (this.kindPicker.isOpen()) {  // this tap only closes the type menu
+            this.kindPicker.close();
+            return;
+        }
         if (!this.isActive()) return;
         if (this.step !== "pick_start" && this.step !== "pick_dest") return;
 
@@ -68,11 +141,10 @@ class CreateFlow {
         if (this.step === "pick_start") {
             this.placeMarker("startMarker", point,
                 () => L.circleMarker(point, {radius: 7, weight: 2, fillOpacity: 1}), "START");
-            this.setMsg(`${this.kind}: START = ${fmtPoint(point)}\nClick Confirm to set START.`);
         } else {
             this.placeMarker("destMarker", point, () => L.marker(point, {icon: destIcon}), "DEST");
-            this.setMsg(`${this.kind}: DEST = ${fmtPoint(point)}\nClick Confirm to set DEST.`);
         }
+        this.showHint();
         this.redrawPreview();
     }
 
@@ -82,15 +154,14 @@ class CreateFlow {
         if (this.step === "pick_start") {
             this.startPoint = this.pendingPoint;
             this.step = "pick_dest";
-            this.setMsg(`${this.kind}: START = ${fmtPoint(this.startPoint)}\nNow click map to select DEST, then Confirm.`);
         } else if (this.step === "pick_dest") {
             this.destPoint = this.pendingPoint;
             this.step = "ready";
             this.btn.create.disabled = false;
-            this.setMsg(`${this.kind}: DEST = ${fmtPoint(this.destPoint)}\nClick Create.`);
         }
         this.pendingPoint = null;
         this.btn.confirm.disabled = true;
+        this.showHint();
         this.redrawPreview();
     }
 
@@ -113,11 +184,11 @@ class CreateFlow {
 
     lock() {
         Object.values(this.btn).forEach(b => { b.disabled = true; });
+        this.kindPicker.setEnabled(false);
     }
 
     unlock() {
-        this.btn.walker.disabled = false;
-        this.btn.driver.disabled = false;
+        this.kindPicker.setEnabled(true);
         this.btn.confirm.disabled = !(this.step === "pick_start" || this.step === "pick_dest");
         this.btn.create.disabled = (this.step !== "ready");
         this.redrawPreview();  // e.g. after an error: show the planned line again
@@ -146,8 +217,4 @@ class CreateFlow {
         if (this[name]) this.map.removeLayer(this[name]);
         this[name] = null;
     }
-}
-
-function fmtPoint(p) {
-    return `${p[0].toFixed(6)}, ${p[1].toFixed(6)}`;
 }

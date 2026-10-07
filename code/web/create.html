@@ -2,14 +2,26 @@
 <html lang="en">
 <head>
     <meta charset="utf-8"/>
-    <title>Create Agent</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+    <title>DriveBy</title>
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
     <style>
+        :root {
+            --blue: #2563eb;
+            --blue-soft: rgba(37, 99, 235, 0.12);
+            --text: #111827;
+            --muted: #6b7280;
+            --shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+            --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+
         html, body {
             height: 100%;
             margin: 0;
+            font-family: var(--font);
+            color: var(--text);
         }
 
         #map {
@@ -17,140 +29,188 @@
             width: 100%;
         }
 
-
-        #createBox .row {
-            display: flex;
-            gap: 2px;
-            flex-wrap: wrap; /* falls zu eng */
-            align-items: center;
+        button {
+            font: inherit;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
         }
 
-        #createBox button {
-            padding: 4px 8px;
-            font-size: 12px;
-            margin: 1px 0;
-            border-radius: 6px;
+        button:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+
+        /* ---------- top: agent type ---------- */
+        .kind {
+            position: fixed;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .icon-btn {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            background: #fff;
+            box-shadow: var(--shadow);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+
+        .icon-btn img {
+            width: 30px;
+            height: 30px;
+        }
+
+        .kind-menu {
+            display: flex;
+            gap: 10px;
+            padding: 8px;
+            background: #fff;
+            border-radius: 32px;
+            box-shadow: var(--shadow);
+        }
+
+        .kind-menu[hidden] {
+            display: none;
+        }
+
+        .kind-menu .icon-btn {
+            box-shadow: none;
+            background: #f3f4f6;
+        }
+
+        .kind-menu .icon-btn.selected {
+            background: var(--blue-soft);
+            border-color: var(--blue);
+        }
+
+        /* ---------- bottom: panel ---------- */
+        .sheet {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 1000;
+            background: #fff;
+            border-radius: 16px 16px 0 0;
+            box-shadow: var(--shadow);
+            padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-width: 520px;
+            margin: 0 auto;
+        }
+
+        #msg {
+            font-size: 15px;
+            line-height: 1.35;
+            white-space: pre-wrap;
+            min-height: 20px;
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .actions button {
+            flex: 1;
+            height: 46px;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            background: #f3f4f6;
+            color: var(--text);
+        }
+
+        .actions button.primary {
+            background: var(--blue);
+            color: #fff;
+        }
+
+        .actions button.ghost {
+            flex: 0 0 auto;
+            padding: 0 16px;
+            background: transparent;
+            color: var(--muted);
+        }
+
+        /* ---------- navigation ---------- */
+        .nav-btn {
+            position: fixed;
+            right: 16px;
+            bottom: 150px;
+            z-index: 1000;
+            height: 44px;
+            padding: 0 16px;
+            border: none;
+            border-radius: 22px;
+            background: #fff;
+            color: var(--blue);
+            font-weight: 600;
+            box-shadow: var(--shadow);
         }
 
         #zoom-msg {
             position: fixed;
-            bottom: 80px;
+            bottom: 150px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.75);
+            background: rgba(17, 24, 39, 0.8);
             color: #fff;
             padding: 6px 10px;
-            border-radius: 6px;
+            border-radius: 8px;
             font-size: 13px;
             pointer-events: none;
-            z-index: 9999;
+            z-index: 1000;
             transition: opacity 0.3s;
         }
 
-        .panel {
-            position: fixed;
-            top: 16px;
-            right: 16px;
-            width: 300px;
-            padding: 12px;
-            background: #fff;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-            z-index: 10000;
-            font-family: system-ui, sans-serif;
-            font-size: 13px;
-            white-space: pre-wrap;
-            line-height: 1.2;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .panel button {
-            padding: 6px 10px;
-            font-size: 13px;
-
-            border: none;
-            border-radius: 6px;
-            background: #f2f2f2;
-            cursor: pointer;
-
-            transition: background 0.2s ease;
-        }
-
-        .panel button:hover {
-            background: #e0e0e0;
-        }
-
-        .row {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            margin-top: 6px;
-        }
-
-        .nav-btn {
-            position: fixed;
-            bottom: 24px;
-            right: 20px;
-            z-index: 10000;
-
-            padding: 6px 10px;
-            font-size: 13px;
-            font-family: system-ui, sans-serif;
-
-            border: none;
-            border-radius: 6px;
-            background: #f2f2f2;
-            color: #1e88e5;
-
-            cursor: pointer;
-            transition: background 0.2s ease, color 0.2s ease;
-        }
-
-        .nav-btn:hover {
-            background: #e0e0e0;
-            color: #01316a;
-        }
-
-
-        button {
-            padding: 6px 10px;
-            border-radius: 6px;
-            border: 1px solid #ccc;
-            background: #fff;
-            cursor: pointer;
-        }
-
-        button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
+        #zoom-msg:empty {
+            display: none;
         }
     </style>
 </head>
 <body>
 <div id="map"></div>
 
-<button id="btn-follow" class="nav-btn" hidden>
-    Navigate
-</button>
-<button id="btn-stop-follow" class="nav-btn" hidden>
-  Stop follow
-</button>
-
-
-<div class="panel">
-    <div id="msg">Choose agent type.</div>
-
-    <div class="row">
-        <button id="btn-kind-walker">Walker</button>
-        <button id="btn-kind-driver">Driver</button>
+<!-- top: which agent you create (tap to switch) -->
+<div class="kind">
+    <button id="kind-btn" class="icon-btn" aria-label="Agent type">
+        <img id="kind-icon" src="icons/walker.png" alt=""/>
+    </button>
+    <div id="kind-menu" class="kind-menu" hidden>
+        <button id="kind-walker" class="icon-btn" aria-label="Walker">
+            <img src="icons/walker.png" alt=""/>
+        </button>
+        <button id="kind-driver" class="icon-btn" aria-label="Driver">
+            <img src="icons/car.png" alt=""/>
+        </button>
     </div>
+</div>
 
-    <div class="row">
+<button id="btn-follow" class="nav-btn" hidden>Navigate</button>
+<button id="btn-stop-follow" class="nav-btn" hidden>Stop</button>
+
+<!-- bottom: start / destination / create -->
+<div class="sheet">
+    <div id="msg"></div>
+    <div class="actions">
         <button id="btn-confirm" disabled>Confirm</button>
-        <button id="btn-create" disabled>Create</button>
-        <button id="btn-cancel">Cancel</button>
+        <button id="btn-create" class="primary" disabled>Create</button>
+        <button id="btn-cancel" class="ghost">Close</button>
     </div>
 </div>
 

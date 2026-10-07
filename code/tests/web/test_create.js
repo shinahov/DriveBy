@@ -16,7 +16,7 @@ function load(storage) {
 }
 const click = (t, lat, lng) => t.map.fire('click', { latlng: { lat, lng } });
 function createWalker(t) {
-  t.els['btn-kind-walker'].onclick(); click(t, 51.2, 6.78); t.els['btn-confirm'].onclick();
+  click(t, 51.2, 6.78); t.els['btn-confirm'].onclick();   // walker is the default type
   click(t, 51.21, 6.79); t.els['btn-confirm'].onclick();
 }
 function route(id) { const d = [[51,7],[51,7.01],[51,7.02],[51,7.03],[51,7.04]];
@@ -26,8 +26,30 @@ const frame = (phase, o = {}) => ({ type: 'position', data: { t_s: 1, frame: Obj
   walker: { agent_id: 'W', lat: 51.0005, lon: 7.005, pIdx: 1, dIdx: 0 }, driver: { agent_id: 'D', lat: 51, lon: 7.0, idx: 0 } }, o) } });
 const st = (status, extra = {}) => Object.assign({ type: 'status', status, request_id: 'R1' }, extra);
 
-// ---- create flow
+// ---- agent type picker (top)
 let t = load(); let s = t.sock.s;
+const ev = { stopPropagation() {} };
+const picker = () => t.ctx.__get('createFlow').kindPicker;
+assert.strictEqual(t.els['kind-icon'].src, 'icons/walker.png', 'walker by default');
+assert.strictEqual(t.els['kind-menu'].hidden, true);
+t.els['kind-btn'].onclick(ev);
+assert.strictEqual(t.els['kind-menu'].hidden, false, 'tap on icon opens the menu');
+assert.ok(t.els['kind-walker'].classList.contains('selected') && !t.els['kind-driver'].classList.contains('selected'));
+t.els['kind-driver'].onclick(ev);
+assert.ok(t.els['kind-driver'].classList.contains('selected') && !t.els['kind-walker'].classList.contains('selected'), 'selected one is blue');
+assert.strictEqual(t.els['kind-icon'].src, 'icons/car.png');
+assert.strictEqual(t.els['kind-menu'].hidden, false, 'menu stays open after choosing');
+assert.match(t.els['msg'].textContent, /^Driver/);
+t.tapDocument();
+assert.strictEqual(t.els['kind-menu'].hidden, true, 'tap anywhere closes it');
+// a map tap while the menu is open only closes the menu, no point is set
+t.els['kind-btn'].onclick(ev);
+click(t, 51.3, 6.9);
+assert.strictEqual(t.els['kind-menu'].hidden, true);
+assert.strictEqual(t.ctx.__get('createFlow').pendingPoint, null);
+t.els['kind-walker'].onclick(ev); t.tapDocument();
+
+// ---- create flow
 createWalker(t);
 assert.strictEqual(t.els['btn-create'].disabled, false);
 t.sock.open = false; t.els['btn-create'].onclick();
@@ -39,12 +61,15 @@ assert.strictEqual(t.ctx.__get('createFlow').previewLine, null, 'dashed line gon
 assert.ok(t.ctx.__get('createFlow').startMarker && t.ctx.__get('createFlow').destMarker, 'start and dest stay');
 eq(t.sent[0].payload, { type: 'walker', start: { lat: 51.2, lon: 6.78 }, dest: { lat: 51.21, lon: 6.79 } });
 assert.strictEqual(t.els['btn-create'].disabled, true);
+assert.strictEqual(t.els['kind-btn'].disabled, true, 'type cannot change after create');
+t.els['kind-btn'].onclick(ev);
+assert.strictEqual(t.els['kind-menu'].hidden, true);
 
 // ---- statuses
 s.h.status(st('queued'));
 s.onConnect(); eq(t.sent.at(-1), { type: 'subscribe', request_id: 'R1' });
 s.h.status(st('error', { message: 'boom' })); assert.match(t.els['msg'].textContent, /boom/);
-const nSent = t.sent.length; t.els['btn-create'].onclick();
+const nSent = t.sent.length; assert.strictEqual(t.els['kind-btn'].disabled, false, 'type can change again after an error'); t.els['btn-create'].onclick();
 assert.strictEqual(t.sent.length, nSent + 1, 'can create again after an error');
 s.h.status(st('queued'));
 s.h.status(st('not_matched', { agent_id: 'W' }));
@@ -120,6 +145,16 @@ assert.ok(ml.every(l => !t.onMap.has(l)), 'old match removed');
 assert.strictEqual(t.ctx.__get('viewMode'), 'agent');
 console.log('create.js base OK');
 
+// ---- creating a driver uses the picked type
+{
+  const td = load(); const e2 = { stopPropagation() {} };
+  td.els['kind-btn'].onclick(e2); td.els['kind-driver'].onclick(e2); td.tapDocument();
+  click(td, 51.2, 6.78); td.els['btn-confirm'].onclick(); click(td, 51.21, 6.79); td.els['btn-confirm'].onclick();
+  td.els['btn-create'].onclick();
+  assert.strictEqual(td.sent[0].payload.type, 'driver');
+  console.log('create.js driver OK');
+}
+
 // ---- reload keeps my agent
 {
   let t1 = load(); const s1 = t1.sock.s;
@@ -145,6 +180,6 @@ console.log('create.js base OK');
   t3.sock.s.h.status({ type: 'status', status: 'unknown', request_id: 'OLD' });
   assert.strictEqual(t3.ctx.__get('viewMode'), 'create');
   assert.strictEqual(t3.storage['driveby.myAgent'], undefined);
-  assert.strictEqual(t3.els['btn-kind-walker'].disabled, false);
+  assert.strictEqual(t3.els['kind-btn'].disabled, false);
   console.log('create.js reload OK');
 }

@@ -311,5 +311,5 @@ if (saved && saved.requestId) {
     createFlow.lock();
     setMsg("Reconnecting to your agent...");
 } else {
-    setMsg("Choose agent type.");
+    createFlow.showHint();
 }

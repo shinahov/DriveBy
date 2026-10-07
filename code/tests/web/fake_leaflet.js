@@ -27,7 +27,12 @@ function makeContext(extra) {
     divIcon: () => ({}), icon: () => ({}), circleMarker: (ll,o) => new Layer('circle', ll, o),
     polyline: (p,o) => new Layer('line', p, o), point: (x,y) => ({x,y}) };
   const els = {};
-  const el = () => ({ textContent:'', hidden:true, disabled:false, style:{display:'none'}, value:'1' });
+  const el = () => {
+    const classes = new Set();
+    return { textContent:'', hidden:true, disabled:false, style:{display:'none'}, value:'1', src:'',
+      classList: { toggle: (c, on) => { on ? classes.add(c) : classes.delete(c); }, contains: c => classes.has(c) } };
+  };
+  const docListeners = {};
   const sent = [];
   const sock = { open: true };
   class LiveSocket { constructor(p){ this.path=p; this.h={}; sock.s=this; } on(t,f){ this.h[t]=f; return this; }
@@ -35,10 +40,13 @@ function makeContext(extra) {
   const storage = {};
   const ctx = Object.assign({ L, LiveSocket, console: { log(){}, warn(){}, error: console.error },
     requestAnimationFrame: f => f(), setTimeout(){}, setInterval(){}, window: { open(){}, close(){} },
-    document: { getElementById: id => (els[id] = els[id] || el()) },
+    document: { getElementById: id => (els[id] = els[id] || el()),
+      addEventListener: (e, fn) => { (docListeners[e] = docListeners[e] || []).push(fn); } },
     sessionStorage: { getItem: k => storage[k] ?? null, setItem: (k,v) => { storage[k] = String(v); }, removeItem: k => { delete storage[k]; } },
     performance: { now: () => Date.now() }, Date, Math, Number, String, Array, Object, JSON, Set, Map },
     extra || {});
-  return { ctx, map, onMap, els, sent, sock, storage, Layer };
+  // a tap somewhere on the page (bubbles up to document)
+  const tapDocument = () => (docListeners.click || []).forEach(fn => fn({}));
+  return { ctx, map, onMap, els, sent, sock, storage, Layer, tapDocument };
 }
 module.exports = { makeContext };
