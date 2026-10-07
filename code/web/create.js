@@ -1,87 +1,54 @@
-let agentWS = null;
-let wsReady = false;
-let activeRequestId = null;
+// request_id of the agent this page created (null until the server queued it)
+let myRequestId = null;
 
+// connection to the server: what to do with each message type
+const socket = new LiveSocket("/ws_agent")
+    .on("position", msg => updateMyPosition(msg.data))
+    .on("routes", msg => updateMyRoutes(msg.data))
+    .on("status", msg => handleStatus(msg));
 
-function setupAgentWS(requestId = null) {
-    const url = "ws://" + window.location.host + "/ws_agent" +
-        (requestId ? ("?request_id=" + encodeURIComponent(requestId)) : "");
+// after a reconnect the server no longer knows us -> subscribe again
+socket.onConnect = () => {
+    if (myRequestId) socket.send({type: "subscribe", request_id: myRequestId});
+};
 
-    agentWS = new WebSocket(url);
-
-    agentWS.onopen = () => {
-        console.log("agnet ws connected");
-        wsReady = true;
-
-        if (activeRequestId && !requestId) {
-            agentWS.send(JSON.stringify({
-                type: "subscribe",
-                request_id: activeRequestId
-            }));
-
-        }
-
-    };
-    agentWS.onclose = () => {
-        console.log("agent ws disconnected");
-        wsReady = false;
-
-    };
-
-    agentWS.onerror = (event) => {
-        console.error("agent ws error:", event);
-        agentWS.close();
-    };
-
-    agentWS.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        console.log("agent ws message:", msg);
-
-        if (msg.type === "position") {
-            updateMyPosition(msg.data)
-        }
-
-        if (msg.type === "routes") {
-            updateMyRoutes(msg.data)
-        }
-
-        if (msg.type === "status") {
-            const st = msg;
-
-            if (st.status === "queued") {
-                setMsg(`Queued.\nrequest_id=${st.request_id}`);
-                return;
-            }
-
-            if (st.status === "not_matched") {
-                viewMode = "agent";
-                targetAgentId = st.agent_id;
-                targetMatchId = null;
-
-                setMsg(`No match.\nagent_id=${targetAgentId}`);
-                return;
-            }
-
-            if (st.status === "matched") {
-                viewMode = "match";
-                targetMatchId = st.match_id;
-                targetAgentId = st.agent_id ?? null;
-
-                showFollowButtons();
-
-                setMsg(`Matched.\nmatch_id=${targetMatchId}`);
-                return;
-            }
-
-            // optional: subscribed etc
-            console.log("unhandled status:", st.status, st);
-            return;
-        }
-
+function handleStatus(st) {
+    if (st.status === "queued") {
+        myRequestId = st.request_id;
+        setMsg(`Queued.\nrequest_id=${st.request_id}`);
+        return;
     }
-}
 
-setupAgentWS();
+    if (st.status === "not_matched") {
+        viewMode = "agent";
+        targetAgentId = st.agent_id;
+        targetMatchId = null;
+        setMsg(`No match.\nagent_id=${targetAgentId}`);
+        return;
+    }
+
+    if (st.status === "matched") {
+        viewMode = "match";
+        targetMatchId = st.match_id;
+        targetAgentId = st.agent_id ?? null;
+        showFollowButtons();
+        setMsg(`Matched.\nmatch_id=${targetMatchId}`);
+        return;
+    }
+
+    if (st.status === "done") {
+        setMsg("Arrived. Trip finished.");
+        return;
+    }
+
+    if (st.status === "error") {
+        setMsg(`Error:\n${st.message}`);
+        unlockCreateButtons();
+        return;
+    }
+
+    console.log("unhandled status:", st.status, st);
+}
 
 const map = L.map("map", {
     rotate: true,
@@ -881,7 +848,21 @@ btnConfirm.onclick = () => {
     }
 };
 
-btnCreate.onclick = async () => {
+function lockCreateButtons() {
+    btnCreate.disabled = true;
+    btnConfirm.disabled = true;
+    btnWalker.disabled = true;
+    btnDriver.disabled = true;
+}
+
+function unlockCreateButtons() {
+    btnWalker.disabled = false;
+    btnDriver.disabled = false;
+    btnConfirm.disabled = !(step === "pick_start" || step === "pick_dest");
+    btnCreate.disabled = (step !== "ready");
+}
+
+btnCreate.onclick = () => {
     if (viewMode !== "create") return;
     if (!kind || !startPoint || !destPoint) return;
 
@@ -891,36 +872,13 @@ btnCreate.onclick = async () => {
         dest: {lat: destPoint[0], lon: destPoint[1]}
     };
 
-    try {
-        // Lock UI to prevent double-submit
-        btnCreate.disabled = true;
-        btnConfirm.disabled = true;
-        btnWalker.disabled = true;
-        btnDriver.disabled = true;
+    lockCreateButtons();  // prevent double-submit
+    setMsg("Sending create request...");
+    createdKind = kind;
 
-        setMsg("Sending create request...");
-
-        if (!wsReady) {
-            setupAgentWS();
-        }
-
-        if (!wsReady) {
-            setMsg("WS not connected yet.");
-            return;
-        }
-
-        createdKind = kind;
-        agentWS.send(JSON.stringify({type: "create_request", payload}));
-
-
-    } catch (e) {
-        // On error, re-enable selection so the user can try again.
-        btnWalker.disabled = false;
-        btnDriver.disabled = false;
-        btnConfirm.disabled = (!(step === "pick_start" || step === "pick_dest"));
-        btnCreate.disabled = (step !== "ready");
-
-        setMsg(`Create failed:\n${e.message}`);
+    if (!socket.send({type: "create_request", payload})) {
+        setMsg("Not connected to the server yet. Try again in a moment.");
+        unlockCreateButtons();
     }
 };
 
