@@ -31,7 +31,6 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 const infoEl = document.getElementById("info");
 
 // ---------- State ----------
-let routesLoaded = false;
 let focusedKey = null;
 
 
@@ -317,24 +316,8 @@ function applyRoadsVersion(data) {
             map.fitBounds(allPts, {padding: [30, 30]});
         }
 
-        routesLoaded = true;
         infoEl.textContent = "Routes loaded...";
 }
-
-//Routes (load once)
-async function tryLoadRoutes() {
-    //if (routesLoaded) return;
-
-    try {
-        const data = await fetchJsonNoCache("routes.json");
-        applyRoadsVersion(data);
-    } catch (e) {
-        infoEl.textContent = "--error";
-    }
-    applyFocus();
-
-}
-
 
 function applyPositions(data) {
     const sims = Array.isArray(data.sims) ? data.sims : [];
@@ -432,28 +415,7 @@ function applyPositions(data) {
             "left walkers = " + lW.length;
 }
 
-// continuous
-async function updatePositions() {
-    try {
-        const data = await fetchJsonNoCache("positions.json");
-        applyPositions(data);
-
-    } catch (e) {
-        infoEl.textContent = routesLoaded
-            ? "Routes loaded..."
-            : "Waiting for routes...";
-    }
-    applyFocus();
-
-}
-
 // controls
-document.getElementById("btn-faster").onclick = () => {
-    fetch("/faster");
-};
-document.getElementById("btn-slower").onclick = () => {
-    fetch("/slower");
-};
 
 
 document.getElementById("btn-open-create").onclick = () => {
@@ -478,7 +440,6 @@ speedRange.oninput = () => {
 
 speedRange.onchange = () => {
   const v = Number(speedRange.value);
-  fetch("/speed?value=" + speedRange.value);
   socket.send({type: "speed", value: v});
   speedBox.style.display = "none";
 };
