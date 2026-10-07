@@ -34,9 +34,9 @@ const infoEl = document.getElementById("info");
 let focusedKey = null;
 
 
-// Per-simulation layers
-// simLayers[i] = { markers:{walker,driver}, lines:{pre,ride,post,w1,w2,pickup,dropoff} }
-let simLayers = [];
+// One entry per match, looked up by its match id (sim_id):
+// simLayers[simId] = { markers:{walker,driver}, lines:{pre,ride,post,w1,w2,pickup,dropoff} }
+let simLayers = {};
 
 // Leftover agents markers
 let leftoverDriverMarkers = [];
@@ -79,34 +79,45 @@ function createPulsingDriverMarker(latlng) {
     });
 }
 
-function ensureSimLayers(n) {
-    while (simLayers.length < n) {
-        const idx = simLayers.length;
-
+// layers of one match; created the first time the match shows up
+function getSimLayer(simId) {
+    if (!simLayers[simId]) {
         const walker = createWalkerTriangleMarker([0, 0]).addTo(map);
-        walker.bindTooltip("Walker sim " + idx);
+        walker.bindTooltip("Walker " + simId.slice(0, 8));
+        walker.on("click", () => setFocus(`M:${simId}:W`));
 
         const driver = createPulsingDriverMarker([0, 0]).addTo(map);
-        driver.bindTooltip("Driver sim " + idx);
+        driver.bindTooltip("Driver " + simId.slice(0, 8));
+        driver.on("click", () => setFocus(`M:${simId}:D`));
 
-        simLayers.push({
+        simLayers[simId] = {
             markers: {walker, driver},
             lines: {
                 pre: null, ride: null, post: null,
                 w1: null, w2: null,
                 pickup: null, dropoff: null
             }
-        });
+        };
     }
+    return simLayers[simId];
+}
 
-    while (simLayers.length > n) {
-        const s = simLayers.pop();
+// remove the layers of every match that is no longer in activeIds
+function removeSimLayersExcept(activeIds) {
+    for (const simId of Object.keys(simLayers)) {
+        if (activeIds.has(simId)) continue;
+        const s = simLayers[simId];
         map.removeLayer(s.markers.walker);
         map.removeLayer(s.markers.driver);
-        Object.values(s.lines).forEach(layer => {
-            if (layer) map.removeLayer(layer);
-        });
+        clearSimLines(s);
+        delete simLayers[simId];
     }
+}
+
+function setFocus(key) {
+    focusedKey = key;
+    infoEl.textContent = "FOCUS = " + focusedKey;
+    applyFocus();
 }
 
 function ensureCircleMarkers(arr, n, tooltipPrefix) {
@@ -143,9 +154,7 @@ let roadsVersion = null;
 function applyFocus() {
     // no focus: show everything
     if (!focusedKey) {
-        for (let i = 0; i < simLayers.length; i++) {
-            const s = simLayers[i];
-
+        for (const s of Object.values(simLayers)) {
             if (!map.hasLayer(s.markers.walker)) s.markers.walker.addTo(map);
             if (!map.hasLayer(s.markers.driver)) s.markers.driver.addTo(map);
 
@@ -161,9 +170,7 @@ function applyFocus() {
     }
 
     // fokus aktiv then : make everything invisible first
-    for (let i = 0; i < simLayers.length; i++) {
-        const s = simLayers[i];
-
+    for (const s of Object.values(simLayers)) {
         if (map.hasLayer(s.markers.walker)) map.removeLayer(s.markers.walker);
         if (map.hasLayer(s.markers.driver)) map.removeLayer(s.markers.driver);
 
@@ -178,23 +185,9 @@ function applyFocus() {
 
     // focused sim
     if (focusedKey.startsWith("M:")) {
-        const parts = focusedKey.split(":");
-        const simId = parts[1]; // extract simId
-
-        // find sim layer by simId
-        let idx = -1;
-        for (let i = 0; i < simLayers.length; i++) {
-            const s = simLayers[i];
-            const dk = s.markers.driver._key || "";
-            const wk = s.markers.walker._key || "";
-            if (dk.includes(`M:${simId}:`) || wk.includes(`M:${simId}:`)) {
-                idx = i;
-                break;
-            }
-        }
-        if (idx === -1) return;
-
-        const s = simLayers[idx];
+        const simId = focusedKey.split(":")[1];  // "M:<simId>:W" -> <simId>
+        const s = simLayers[simId];
+        if (!s) return;
 
         // show only this sim
         s.markers.walker.addTo(map);
@@ -228,13 +221,7 @@ function applyRoadsVersion(data) {
         if (v !== null) roadsVersion = v;
         const routes = Array.isArray(data.routes) ? data.routes : [];
 
-        ensureSimLayers(routes.length);
-
         let allPts = [];
-        if (allPts.length > 0) {
-            map.fitBounds(allPts, {padding: [50, 50]});
-        }
-
 
         for (let i = 0; i < routes.length; i++) {
             const r = routes[i];
@@ -248,7 +235,7 @@ function applyRoadsVersion(data) {
                 continue;
             }
 
-            const s = simLayers[i];
+            const s = getSimLayer(r.match_id);
             clearSimLines(s);
 
             const iPick = r.idx?.pickup;
@@ -322,50 +309,13 @@ function applyRoadsVersion(data) {
 function applyPositions(data) {
     const sims = Array.isArray(data.sims) ? data.sims : [];
 
-        ensureSimLayers(sims.length);
-
-        for (let i = 0; i < sims.length; i++) {
-            const s = sims[i];
-            const layer = simLayers[i];
-            const simId = s.sim_id;
-
-            if (s.walker) {
-                const m = layer.markers.walker;
-                m.setLatLng([s.walker.lat, s.walker.lon]);
-
-                // key
-                m._key = `M:${simId}:W`;
-
-                // click-handler
-                if (!m._clickBound) {
-                    m.on("click", (e) => {
-                        focusedKey = e.target._key;
-                        infoEl.textContent = "FOCUS = " + focusedKey;
-                        applyFocus();
-                    });
-
-                    m._clickBound = true;
-                }
-            }
-
-            if (s.driver) {
-                const m = layer.markers.driver;
-                m.setLatLng([s.driver.lat, s.driver.lon]);
-
-                m._key = `M:${simId}:D`;
-
-                if (!m._clickBound) {
-                    m.on("click", (e) => {
-                        focusedKey = e.target._key;
-                        infoEl.textContent = "FOCUS = " + focusedKey;
-                        applyFocus();
-                    });
-
-
-                    m._clickBound = true;
-                }
-            }
+        for (const s of sims) {
+            const layer = getSimLayer(s.sim_id);
+            if (s.walker) layer.markers.walker.setLatLng([s.walker.lat, s.walker.lon]);
+            if (s.driver) layer.markers.driver.setLatLng([s.driver.lat, s.driver.lon]);
         }
+        // matches that are finished disappear from the map
+        removeSimLayersExcept(new Set(sims.map(s => s.sim_id)));
 
         const lD = Array.isArray(data.leftover_drivers) ? data.leftover_drivers : [];
         const lW = Array.isArray(data.leftover_walkers) ? data.leftover_walkers : [];
@@ -379,11 +329,7 @@ function applyPositions(data) {
 
             m._key = `A:${lD[i].agent_id}`;
             if (!m._clickBound) {
-                m.on("click", (e) => {
-                    focusedKey = e.target._key;
-                    infoEl.textContent = "FOCUS = " + focusedKey;
-                    applyFocus();
-                });
+                m.on("click", (e) => setFocus(e.target._key));
 
                 m._clickBound = true;
             }
@@ -395,11 +341,7 @@ function applyPositions(data) {
 
             m._key = `A:${lW[i].agent_id}`;
             if (!m._clickBound) {
-                m.on("click", (e) => {
-                    focusedKey = e.target._key;
-                    infoEl.textContent = "FOCUS = " + focusedKey;
-                    applyFocus();
-                });
+                m.on("click", (e) => setFocus(e.target._key));
 
                 m._clickBound = true;
             }
