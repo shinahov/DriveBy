@@ -42,7 +42,7 @@ class RecordingSimulation(Simulation):
     def publish_all(self, event, droppable=False):
         self.global_events.append(event)
 
-    def publish_to(self, request_id, event):
+    def publish_to(self, request_id, event, droppable=False):
         self.direct_events.append((request_id, event))
 
     def create(self, rid, payload):
@@ -123,6 +123,38 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(self.sim.walker_agent_list, [])
         self.assertEqual(self.sim.status_of("w")[-1], "done")
         self.assertNotIn("w", self.sim.agent_id_to_request_id.values())
+
+
+class LeftoverPositionTests(unittest.TestCase):
+    """An agent without a match gets its own position (type "agent_position")."""
+
+    def setUp(self):
+        self._ctx = fake_osrm()
+        self._ctx.__enter__()
+        self.sim = RecordingSimulation()
+
+    def tearDown(self):
+        self._ctx.__exit__(None, None, None)
+
+    def test_unmatched_walker_gets_its_position(self):
+        self.sim.create("w", WALKER)
+        self.sim.step()
+        self.sim.step()
+        events = [e for rid, e in self.sim.direct_events if rid == "w" and e["type"] == "agent_position"]
+        self.assertTrue(events)
+        data = events[-1]["data"]
+        self.assertEqual(data["kind"], "walker")
+        self.assertEqual(data["agent_id"], self.sim.walker_agent_list[0].agent_id)
+        self.assertAlmostEqual(data["lat"], WALKER["start"]["lat"], places=3)
+
+    def test_matched_agents_get_no_agent_position(self):
+        self.sim.create("w", WALKER)
+        self.sim.step()
+        self.sim.create("d", DRIVER)
+        self.sim.step()
+        self.sim.direct_events.clear()
+        self.sim.step()
+        self.assertFalse([e for _, e in self.sim.direct_events if e["type"] == "agent_position"])
 
 
 class WsBusTests(unittest.TestCase):

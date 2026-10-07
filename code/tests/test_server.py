@@ -118,6 +118,15 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(msg["data"]["routes"]), 1)
         await ws2.close()
 
+    async def test_unmatched_agent_gets_own_position(self):
+        ws = await self.client.ws_connect("/ws_agent")
+        await ws.send_json({"type": "create_request", "payload": WALKER})
+        await wait_for(ws, is_status("not_matched"))
+        msg = await wait_for(ws, lambda m: m.get("type") == "agent_position")
+        self.assertEqual(msg["data"]["kind"], "walker")
+        self.assertAlmostEqual(msg["data"]["lat"], WALKER["start"]["lat"], places=3)
+        await ws.close()
+
     async def test_unknown_message_type(self):
         ws = await self.client.ws_connect("/ws_agent")
         await ws.send_json({"type": "nonsense"})

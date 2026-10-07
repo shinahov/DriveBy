@@ -47,7 +47,7 @@ function showStopButton() {
 }
 
 // ---------- state ----------
-let viewMode = "create";   // create -> agent (waiting for a match) -> match
+let viewMode = "create";   // create -> agent (waiting) -> match -> done
 let myRequestId = null;    // request_id of my agent (null until the server queued it)
 let createdKind = null;    // "walker" | "driver"
 let targetMatchId = null;
@@ -77,7 +77,8 @@ const createFlow = new CreateFlow(map, {
 
 // ---------- connection: what to do with each message type ----------
 const socket = new LiveSocket("/ws_agent")
-    .on("position", msg => updateMyPosition(msg.data))
+    .on("position", msg => updateMatchPosition(msg.data.frame))
+    .on("agent_position", msg => updateAgentPosition(msg.data))
     .on("routes", msg => updateMyRoutes(msg.data))
     .on("status", msg => handleStatus(msg));
 
@@ -94,6 +95,8 @@ function handleStatus(st) {
     }
 
     if (st.status === Status.NOT_MATCHED) {
+        // also sent to a driver whose passenger got off: back to waiting
+        leaveMatch();
         viewMode = "agent";
         targetAgentId = st.agent_id;
         targetMatchId = null;
@@ -102,6 +105,7 @@ function handleStatus(st) {
     }
 
     if (st.status === Status.MATCHED) {
+        clearMyViewLayers();  // the "waiting" dot
         viewMode = "match";
         targetMatchId = st.match_id;
         targetAgentId = st.agent_id ?? null;
@@ -111,6 +115,8 @@ function handleStatus(st) {
     }
 
     if (st.status === Status.DONE) {
+        leaveMatch();
+        viewMode = "done";
         setMsg("Arrived. Trip finished.");
         return;
     }
@@ -141,20 +147,23 @@ function clearMyViewLayers() {
     myMatch = null;
 }
 
+// stop showing / following the match (it is over)
+function leaveMatch() {
+    clearMyViewLayers();
+    follower.stop();
+    btnFollow.hidden = true;
+    btnStopFollow.hidden = true;
+}
+
 // create the marker the first time, move it afterwards
 function placeMarker(marker, latlng, makeMarker) {
     if (marker) return marker.setLatLng(latlng);
     return makeMarker(latlng).addTo(map);
 }
 
-function updateMyPosition(data) {
-    if (viewMode === "match") updateMatchPosition(data?.frame);
-    if (viewMode === "agent") updateAgentPosition(data);
-}
-
 // both agents of my match (frame = one entry of the server's position message)
 function updateMatchPosition(frame) {
-    if (!frame) return;
+    if (viewMode !== "match" || !frame) return;
     if (targetMatchId == null && frame.sim_id != null) targetMatchId = frame.sim_id;
     if (String(frame.sim_id) !== String(targetMatchId)) return;
 
@@ -182,12 +191,9 @@ function updateMatchPosition(frame) {
     updateMyProgress();
 }
 
-// my agent while it waits for a match
-function updateAgentPosition(data) {
-    const lD = Array.isArray(data.leftover_drivers) ? data.leftover_drivers : [];
-    const lW = Array.isArray(data.leftover_walkers) ? data.leftover_walkers : [];
-    const a = [...lD, ...lW].find(x => String(x.agent_id) === String(targetAgentId));
-    if (!a) return;
+// my agent while it waits for a match (the server sends "agent_position" only then)
+function updateAgentPosition(a) {
+    if (viewMode !== "agent" || String(a.agent_id) !== String(targetAgentId)) return;
 
     const latlng = [a.lat, a.lon];
     if (!myLeftoverMarker) map.setView(latlng, 14);

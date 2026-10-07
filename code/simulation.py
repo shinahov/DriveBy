@@ -37,6 +37,19 @@ async def dispatch_frames_by_req_id(app: web.Application, data: Dict[str, Any]) 
                 await publish_by_id(app, rid, event, droppable=True)
 
 
+def leftover_events(data: Dict[str, Any], agent_id_to_request_id: Dict[str, str]) -> list:
+    """(request_id, event) for every unmatched agent, so its page can show where it is."""
+    events = []
+    for kind, key in (("driver", "leftover_drivers"), ("walker", "leftover_walkers")):
+        for a in data[key]:
+            rid = agent_id_to_request_id.get(a.get("agent_id"))
+            if rid is None:
+                continue
+            events.append((rid, {"type": "agent_position",
+                                 "data": {"t_s": data["t_s"], "kind": kind, **a}}))
+    return events
+
+
 class Simulation:
     """All state of the running simulation."""
 
@@ -61,8 +74,8 @@ class Simulation:
     def publish_all(self, event: dict, droppable: bool = False) -> None:
         self._send(publish(self.app, event, droppable=droppable))
 
-    def publish_to(self, request_id: str, event: dict) -> None:
-        self._send(publish_by_id(self.app, request_id, event))
+    def publish_to(self, request_id: str, event: dict, droppable: bool = False) -> None:
+        self._send(publish_by_id(self.app, request_id, event, droppable=droppable))
 
     def publish_initial_state(self) -> None:
         for sim in self.matches_sim_list:
@@ -182,6 +195,8 @@ class Simulation:
         self.app["last_positions"] = data
         self.publish_all({"type": "positions", "data": data}, droppable=True)
         self._send(dispatch_frames_by_req_id(self.app, data))
+        for rid, event in leftover_events(data, self.agent_id_to_request_id):
+            self.publish_to(rid, event, droppable=True)
 
         if routes_changed:
             routes = build_routes_payload(self.matches_sim_list, version=self.t)
