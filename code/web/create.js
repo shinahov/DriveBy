@@ -3,7 +3,7 @@
 // draws the match, MapFollower (navigation.js) follows the agent.
 
 // ---------- map ----------
-const map = L.map("map", {rotate: true, bearing: 0, rotateControl: true});
+const map = L.map("map", {rotate: true, bearing: 0, rotateControl: false, zoomControl: false});
 
 requestAnimationFrame(() => {
     map.setView([51.2562, 7.1508], 12);
