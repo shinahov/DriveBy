@@ -58,11 +58,7 @@ let myWalkerMarker = null;
 let myDriverMarker = null;
 let myLeftoverMarker = null;
 let myMatch = null;        // MatchLayers of my match
-let myDriverIdx = null;    // progress along the routes (indices into the point lists)
-let myWalkerPIdx = null;
-let myWalkerDIdx = null;
-let driverRoutePoints = null;
-let walkerRoutePoints = null;
+let myFrame = null;        // newest position frame of my match (phase + progress)
 
 const follower = new MapFollower(map);
 
@@ -140,9 +136,7 @@ function clearMyViewLayers() {
     myWalkerMarker = removeIfExists(myWalkerMarker);
     myDriverMarker = removeIfExists(myDriverMarker);
     myLeftoverMarker = removeIfExists(myLeftoverMarker);
-    myWalkerPIdx = null;
-    myWalkerDIdx = null;
-    myDriverIdx = null;
+    myFrame = null;
     if (myMatch) myMatch.remove();
     myMatch = null;
 }
@@ -166,29 +160,41 @@ function updateMatchPosition(frame) {
     if (viewMode !== "match" || !frame) return;
     if (targetMatchId == null && frame.sim_id != null) targetMatchId = frame.sim_id;
     if (String(frame.sim_id) !== String(targetMatchId)) return;
+    myFrame = frame;
 
-    if (frame.walker) {
-        const latlng = [frame.walker.lat, frame.walker.lon];
-        myWalkerMarker = placeMarker(myWalkerMarker, latlng,
-            p => L.marker(p, {icon: walkerIcon}).bindTooltip("Walker (match)"));
-        myWalkerPIdx = Number.isInteger(frame.walker.pIdx) ? frame.walker.pIdx : 0;
-        myWalkerDIdx = Number.isInteger(frame.walker.dIdx) ? frame.walker.dIdx : 0;
-        if (createdKind === "walker") {
-            follower.update(latlng, walkerRoutePoints, myWalkerPIdx, 5, 30);
-        }
-    }
+    const walkerPos = [frame.walker.lat, frame.walker.lon];
+    const driverPos = [frame.driver.lat, frame.driver.lon];
+    myWalkerMarker = placeMarker(myWalkerMarker, walkerPos,
+        p => L.marker(p, {icon: walkerIcon}).bindTooltip("Walker (match)"));
+    myDriverMarker = placeMarker(myDriverMarker, driverPos,
+        p => L.marker(p, {icon: driverIcon}).bindTooltip("Driver (match)"));
 
-    if (frame.driver) {
-        const latlng = [frame.driver.lat, frame.driver.lon];
-        myDriverMarker = placeMarker(myDriverMarker, latlng,
-            p => L.marker(p, {icon: driverIcon}).bindTooltip("Driver (match)"));
-        myDriverIdx = Number.isInteger(frame.driver.idx) ? frame.driver.idx : 0;
-        if (createdKind === "driver") {
-            follower.update(latlng, driverRoutePoints, myDriverIdx, 20, 60);
-        }
-    }
+    const leg = myLeg(frame);
+    if (leg) follower.update(createdKind === "walker" ? walkerPos : driverPos,
+        leg.route, leg.idx, leg.shortLook, leg.longLook);
 
     updateMyProgress();
+}
+
+// the route my agent moves along right now, and where on it
+function myLeg(frame) {
+    if (!myMatch) return null;
+    const onFoot = (route, idx) => ({route, idx, shortLook: 5, longLook: 30});
+    const inCar = {route: myMatch.driver, idx: frame.driver.idx, shortLook: 20, longLook: 60};
+
+    if (createdKind === "driver") return inCar;
+    switch (frame.phase) {
+        case Phase.WALK_TO_PICKUP:
+            return onFoot(myMatch.walkTo, frame.walker.pIdx);
+        case Phase.WAIT_AT_PICKUP:
+            return onFoot(myMatch.walkTo, myMatch.walkTo.length - 2);
+        case Phase.RIDE_WITH_DRIVER:
+            return inCar;
+        case Phase.WALK_FROM_DROPOFF:
+            return onFoot(myMatch.walkFrom, frame.walker.dIdx);
+        default:
+            return null;
+    }
 }
 
 // my agent while it waits for a match (the server sends "agent_position" only then)
@@ -213,9 +219,6 @@ function updateMyRoutes(data) {
     if (myMatch) myMatch.remove();
     myMatch = new MatchLayers(map, route, {pointIcon: pickDropIcon});
     updateMyProgress();
-
-    driverRoutePoints = myMatch.driver;
-    walkerRoutePoints = myMatch.walkTo.concat(myMatch.walkFrom);
     createFlow.clearPreview();
 
     if (firstTime) map.fitBounds(myMatch.allPoints(), {padding: [30, 30]});
@@ -223,11 +226,15 @@ function updateMyRoutes(data) {
 
 // hide the parts of my match route that are already done
 function updateMyProgress() {
-    if (!myMatch) return;
+    if (!myMatch || !myFrame) return;
+    const phase = myFrame.phase;
+    const walkToDone = phase !== Phase.WALK_TO_PICKUP;
+    const walkFromStarted = phase === Phase.WALK_FROM_DROPOFF || phase === Phase.DONE;
     myMatch.setProgress({
-        driverIdx: myDriverIdx ?? 0,
-        walkToIdx: myWalkerPIdx ?? 0,
-        walkFromIdx: myWalkerDIdx ?? 0,
+        driverIdx: myFrame.driver.idx,
+        walkToIdx: walkToDone ? myMatch.walkTo.length : myFrame.walker.pIdx,
+        walkFromIdx: !walkFromStarted ? 0
+            : (phase === Phase.DONE ? myMatch.walkFrom.length : myFrame.walker.dIdx),
     });
 }
 
