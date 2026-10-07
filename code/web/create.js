@@ -158,6 +158,7 @@ function setSmoothBearing(targetBearing) {
 }
 
 let flying = false;
+let zoomOld = null;
 let pendingCenter = null;
 let pendingZoom = null;
 
@@ -448,10 +449,6 @@ let myWalkFromDropoff = null;
 let myPickup = null;
 let myDropoff = null;
 
-// Timers
-let statusTimer = null;
-let posTimer = null;
-let routesTimer = null;
 
 // Navigation variables
 let followEnabled = false;
@@ -490,15 +487,6 @@ const destIcon = L.icon({
     iconAnchor: [12, 12],
     tooltipAnchor: [0, -12]
 });
-
-
-async function fetchJsonNoCache(url) {
-    const res = await fetch(
-        url + "?ts=" + Date.now(),
-        {cache: "no-store"});
-    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-    return await res.json();
-}
 
 
 function clearPreview() {
@@ -541,22 +529,6 @@ function resetCreateState() {
 }
 
 
-// creating an agent is asynchronous; backend needs time to match and create simulation.
-
-async function fetchStatus(requestId) {
-    const res = await fetch(`/create_status?request_id=${encodeURIComponent(requestId)}`, {cache: "no-store"});
-    if (!res.ok) throw new Error(`status HTTP ${res.status}`);
-    return await res.json();
-}
-
-function stopStatusPolling() {
-    if (statusTimer) {
-        clearInterval(statusTimer);
-        statusTimer = null;
-    }
-}
-
-
 //clear old my view layers
 
 function removeIfExists(layer) {
@@ -568,7 +540,8 @@ function clearMyViewLayers() {
     myWalkerMarker = removeIfExists(myWalkerMarker);
     myDriverMarker = removeIfExists(myDriverMarker);
     myLeftoverMarker = removeIfExists(myLeftoverMarker);
-    myWalkerIdx = null;
+    myWalkerPIdx = null;
+    myWalkerDIdx = null;
     myDriverIdx = null;
 
     myRoutePre = removeIfExists(myRoutePre);
@@ -782,20 +755,6 @@ async function updateMyRoutes(data) {
 }
 
 
-// Start/stop view loops
-
-function stopViewLoops() {
-    if (posTimer) {
-        clearInterval(posTimer);
-        posTimer = null;
-    }
-    if (routesTimer) {
-        clearInterval(routesTimer);
-        routesTimer = null;
-    }
-}
-
-
 btnWalker.onclick = () => {
     if (viewMode !== "create") return;
     kind = "walker";
@@ -818,8 +777,6 @@ btnDriver.onclick = () => {
 
 btnCancel.onclick = () => {
     //user wants to close child without touching the main window.
-    stopStatusPolling();
-    stopViewLoops();
     window.close();
 };
 
