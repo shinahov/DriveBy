@@ -8,6 +8,7 @@ from geo import LatLon, is_within_dist, topk_by_haversine
 from Match import Match, MatchLight
 from MatchSimulation import MatchSimulation
 from osrm_client import build_walker_route_full, walk_fast
+from status import Status
 
 
 # ---------------------------------------------------- pickup / dropoff points
@@ -243,12 +244,12 @@ def process_new_agent(kind: str,
 
     if not matches_new:
         waiting_list.append(new_agent)
-        return {"status": "not_matched", "req_id": req_id, "agent_id": new_agent.agent_id}
+        return {"status": Status.NOT_MATCHED, "req_id": req_id, "agent_id": new_agent.agent_id}
 
     ms = matches_new[0]
     partner = ms.walker_agent if kind == "driver" else ms.driver_agent
     return {
-        "status": "matched",
+        "status": Status.MATCHED,
         "req_id": req_id,
         "agent_id": new_agent.agent_id,
         "match_id": ms.match_id,

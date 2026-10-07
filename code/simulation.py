@@ -14,6 +14,7 @@ from agents import handle_req
 from matching import process_new_agent
 from MatchSimulation import Phase
 from payloads import build_routes_payload, build_snapshot_payload
+from status import Status
 from ws_bus import publish, publish_by_id, send_status
 
 
@@ -96,15 +97,15 @@ class Simulation:
             min_saving_m=self.min_saving_m,
         )
 
-        if res["status"] == "not_matched":
-            self.notify_status(res["req_id"], "not_matched", agent_id=res["agent_id"])
+        if res["status"] == Status.NOT_MATCHED:
+            self.notify_status(res["req_id"], Status.NOT_MATCHED, agent_id=res["agent_id"])
             return
 
         # matched: tell both sides, then send them the match routes
-        self.notify_status(res["req_id"], "matched",
+        self.notify_status(res["req_id"], Status.MATCHED,
                            match_id=res["match_id"], agent_id=res["agent_id"])
         if res["partner_req_id"] is not None:
-            self.notify_status(res["partner_req_id"], "matched",
+            self.notify_status(res["partner_req_id"], Status.MATCHED,
                                match_id=res["match_id"], agent_id=res["partner_agent_id"])
 
         routes_for_this_match = build_routes_payload([res["match_sim"]], version=self.t)
@@ -124,26 +125,26 @@ class Simulation:
             self.matches_sim_list.remove(sim)
             w_rid = self.agent_id_to_request_id.pop(sim.walker_agent.agent_id, None)
             if w_rid is not None:
-                self.notify_status(w_rid, "done", match_id=sim.match_id)
+                self.notify_status(w_rid, Status.DONE, match_id=sim.match_id)
 
             driver = sim.driver_agent
             d_rid = self.agent_id_to_request_id.get(driver.agent_id)
             if driver.done:
                 self.agent_id_to_request_id.pop(driver.agent_id, None)
                 if d_rid is not None:
-                    self.notify_status(d_rid, "done", match_id=sim.match_id)
+                    self.notify_status(d_rid, Status.DONE, match_id=sim.match_id)
             else:
                 driver.assigned = False
                 self.driver_agent_list.append(driver)
                 if d_rid is not None:
-                    self.notify_status(d_rid, "not_matched", agent_id=driver.agent_id)
+                    self.notify_status(d_rid, Status.NOT_MATCHED, agent_id=driver.agent_id)
 
         for lst in (self.driver_agent_list, self.walker_agent_list):
             for a in [a for a in lst if a.done]:
                 lst.remove(a)
                 rid = self.agent_id_to_request_id.pop(a.agent_id, None)
                 if rid is not None:
-                    self.notify_status(rid, "done", agent_id=a.agent_id)
+                    self.notify_status(rid, Status.DONE, agent_id=a.agent_id)
 
         return bool(finished)
 
@@ -157,7 +158,7 @@ class Simulation:
                 traceback.print_exc()
                 rid = req.get("request_id")
                 if rid is not None:
-                    self.notify_status(rid, "error", message=str(e))
+                    self.notify_status(rid, Status.ERROR, message=str(e))
             routes_changed = True
 
         for a in self.driver_agent_list:

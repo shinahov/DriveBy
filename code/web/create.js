@@ -13,13 +13,13 @@ socket.onConnect = () => {
 };
 
 function handleStatus(st) {
-    if (st.status === "queued") {
+    if (st.status === Status.QUEUED) {
         myRequestId = st.request_id;
         setMsg(`Queued.\nrequest_id=${st.request_id}`);
         return;
     }
 
-    if (st.status === "not_matched") {
+    if (st.status === Status.NOT_MATCHED) {
         viewMode = "agent";
         targetAgentId = st.agent_id;
         targetMatchId = null;
@@ -27,7 +27,7 @@ function handleStatus(st) {
         return;
     }
 
-    if (st.status === "matched") {
+    if (st.status === Status.MATCHED) {
         viewMode = "match";
         targetMatchId = st.match_id;
         targetAgentId = st.agent_id ?? null;
@@ -36,12 +36,12 @@ function handleStatus(st) {
         return;
     }
 
-    if (st.status === "done") {
+    if (st.status === Status.DONE) {
         setMsg("Arrived. Trip finished.");
         return;
     }
 
-    if (st.status === "error") {
+    if (st.status === Status.ERROR) {
         setMsg(`Error:\n${st.message}`);
         unlockCreateButtons();
         return;

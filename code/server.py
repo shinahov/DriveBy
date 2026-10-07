@@ -9,6 +9,7 @@ from aiohttp import web, WSMsgType
 
 import config
 from simulation import start_simulation
+from status import Status
 
 
 def create_uuid() -> str:
@@ -160,7 +161,7 @@ async def ws_agent_handler(request: web.Request) -> web.WebSocketResponse:
                         "payload": payload
                     })
 
-                    await broadcast_status(request_id, "queued")
+                    await broadcast_status(request_id, Status.QUEUED)
                     continue
                 if t == "subscribe":
                     req_id = data.get("request_id")
@@ -174,7 +175,7 @@ async def ws_agent_handler(request: web.Request) -> web.WebSocketResponse:
                     await ws.send_str(json.dumps({
                          "type": "status",
                          "request_id": req_id,
-                         "status": "subscribed"
+                         "status": Status.SUBSCRIBED
                     }))
 
                     continue
