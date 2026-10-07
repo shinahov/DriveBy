@@ -1,43 +1,13 @@
-let ws = null;
-let wsReady = false;
-
-function setupWebSocket() {
-    ws = new WebSocket("ws://" + window.location.host + "/ws");
-
-    ws.onopen = () => {
-        wsReady = true;
-        console.log("WebSocket connected");
-    };
-
-    ws.onclose = () => {
-        wsReady = false;
-        console.log("WebSocket disconnected, retrying in 2s...");
-        setTimeout(setupWebSocket, 2000);
-    };
-
-    ws.onerror = (err) => {
-        console.error("WebSocket error:", err);
-        ws.close();
-    };
-
-    ws.onmessage = (event) => {
-        // Handle incoming messages if needed
-        const msg = JSON.parse(event.data);
-        console.log("WS IN", event.data);
-
-
-        if (msg.type === "positions") {
-            applyPositions(msg.data);
-            applyFocus();
-        }
-        if (msg.type === "routes") {
-            applyRoadsVersion(msg.data);
-            applyFocus();
-        }
-    };
-}
-
-setupWebSocket();
+// connection to the server: what to do with each message type
+const socket = new LiveSocket("/ws")
+    .on("positions", msg => {
+        applyPositions(msg.data);
+        applyFocus();
+    })
+    .on("routes", msg => {
+        applyRoadsVersion(msg.data);
+        applyFocus();
+    });
 
 // map setup
 let map = L.map("map");
@@ -509,7 +479,7 @@ speedRange.oninput = () => {
 speedRange.onchange = () => {
   const v = Number(speedRange.value);
   fetch("/speed?value=" + speedRange.value);
-  ws.send(JSON.stringify({type: "speed", value: v}));
+  socket.send({type: "speed", value: v});
   speedBox.style.display = "none";
 };
 
