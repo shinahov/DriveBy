@@ -59,8 +59,9 @@ So the driver does not fully replace walking — the goal is to reduce walking t
 4. Open http://127.0.0.1:8000 (overview) and click "Add agent".
 
 ## Tests
-From the `code` folder: `py -m pytest tests`
-The tests use a fake OSRM (`tests/fake_osrm.py`), so Docker does not need to run.
+From the `code` folder:
+- backend: `py -m pytest tests` (uses a fake OSRM, `tests/fake_osrm.py`, so Docker does not need to run)
+- frontend: `node tests/web/test_map.js` and `node tests/web/test_create.js` (fake Leaflet, no browser needed)
 
 ## Code structure (`code/`)
 | File | What it does |
@@ -76,7 +77,14 @@ The tests use a fake OSRM (`tests/fake_osrm.py`), so Docker does not need to run
 | `payloads.py` | JSON messages sent to the frontend |
 | `geo.py` | distance and geometry helpers |
 | `RouteBase.py`, `AgentState.py`, `Match.py`, `MatchSimulation.py` | data classes |
-| `web/` | Leaflet frontend (`map.html` overview, `create.html` single user) |
+| `status.py` | status values sent to the browser (same as `web/status.js`) |
+| `web/map.html`, `web/map.js` | overview of the whole simulation (admin / debug view) |
+| `web/create.html`, `web/create.js` | page for one user: create an agent, watch it and its match |
+| `web/create_flow.js` | picking walker/driver, start and destination |
+| `web/navigation.js` | `MapFollower`: follows the agent like a navigation app (rotate, zoom) |
+| `web/match_layers.js` | `MatchLayers`: draws one match (routes, pickup, dropoff) |
+| `web/socket.js` | `LiveSocket`: WebSocket that reconnects by itself |
+| `web/status.js`, `web/geo.js` | shared constants and geometry helpers |
 
 ## What I want to do next
 ### 1) Fix UI / simulation bugs first
