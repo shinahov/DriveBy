@@ -29,24 +29,33 @@ function makeContext(extra) {
   const els = {};
   const el = () => {
     const classes = new Set();
+    const listeners = {};
     return { textContent:'', hidden:true, disabled:false, style:{display:'none'}, value:'1', src:'',
+      clientWidth: 300, offsetWidth: 48, listeners,
+      addEventListener: (e, fn) => { (listeners[e] = listeners[e] || []).push(fn); },
+      fire: (e, ev) => (listeners[e] || []).forEach(fn => fn(ev)),
       classList: { toggle: (c, on) => { on ? classes.add(c) : classes.delete(c); }, contains: c => classes.has(c) } };
   };
   const docListeners = {};
+  const winListeners = {};
+  const winObj = { open(){}, close(){}, addEventListener: (e, fn) => { (winListeners[e] = winListeners[e] || []).push(fn); },
+    fire: (e, ev) => (winListeners[e] || []).forEach(fn => fn(ev)) };
+  const bodyClasses = new Set();
   const sent = [];
   const sock = { open: true };
   class LiveSocket { constructor(p){ this.path=p; this.h={}; sock.s=this; } on(t,f){ this.h[t]=f; return this; }
     send(o){ if (!sock.open) return false; sent.push(JSON.parse(JSON.stringify(o))); return true; } }
   const storage = {};
   const ctx = Object.assign({ L, LiveSocket, console: { log(){}, warn(){}, error: console.error },
-    requestAnimationFrame: f => f(), setTimeout(){}, setInterval(){}, window: { open(){}, close(){} },
+    requestAnimationFrame: f => f(), setTimeout(){}, setInterval(){}, window: winObj,
     document: { getElementById: id => (els[id] = els[id] || el()),
+      body: { classList: { add: c => bodyClasses.add(c), remove: c => bodyClasses.delete(c), contains: c => bodyClasses.has(c) } },
       addEventListener: (e, fn) => { (docListeners[e] = docListeners[e] || []).push(fn); } },
     sessionStorage: { getItem: k => storage[k] ?? null, setItem: (k,v) => { storage[k] = String(v); }, removeItem: k => { delete storage[k]; } },
     performance: { now: () => Date.now() }, Date, Math, Number, String, Array, Object, JSON, Set, Map },
     extra || {});
   // a tap somewhere on the page (bubbles up to document)
   const tapDocument = () => (docListeners.click || []).forEach(fn => fn({}));
-  return { ctx, map, onMap, els, sent, sock, storage, Layer, tapDocument };
+  return { ctx, map, onMap, els, sent, sock, storage, Layer, tapDocument, win: winObj, bodyClasses };
 }
 module.exports = { makeContext };

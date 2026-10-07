@@ -70,6 +70,15 @@ let myLeftoverMarker = null;
 let myMatch = null;        // MatchLayers of my match
 let myFrame = null;        // newest position frame of my match (phase + progress)
 
+// match offer at the bottom: slide to accept (offer_slider.js)
+const offer = new OfferSlider({onAccept: acceptMatch});
+
+// dummy partner until the server sends real names and photos
+const DUMMY_PARTNER = {
+    walker: {name: "Max", photo: "icons/avatar.svg", rating: 4.8, trips: 23},   // a walker is offered a driver
+    driver: {name: "Anna", photo: "icons/avatar.svg", rating: 4.6, trips: 9},   // a driver is offered a walker
+};
+
 const follower = new MapFollower(map);
 follower.onUserTakeover = showFollowButtons;  // user moved the map -> offer "Navigate" again
 
@@ -142,7 +151,7 @@ function handleStatus(st) {
         viewMode = "match";
         targetMatchId = st.match_id;
         targetAgentId = st.agent_id ?? null;
-        showFollowButtons();
+        showOffer();
         setMsg(`Matched.\nmatch_id=${targetMatchId}`);
         return;
     }
@@ -189,6 +198,25 @@ function clearMyViewLayers() {
     myMatch = null;
 }
 
+// a match was found: show the partner and the "slide to accept" slider
+function showOffer() {
+    btnFollow.hidden = true;
+    btnStopFollow.hidden = true;
+    offer.show(DUMMY_PARTNER[createdKind] || DUMMY_PARTNER.walker);
+    document.body.classList.add("offer-open");
+}
+
+function hideOffer() {
+    offer.hide();
+    document.body.classList.remove("offer-open");
+}
+
+// slid to the end. For now only on this page; the server does not wait for it yet.
+function acceptMatch() {
+    hideOffer();
+    showFollowButtons();
+}
+
 // the trip is over (or never started): show the create panel again
 function backToCreate(message, {keepPoints = false} = {}) {
     leaveMatch();
@@ -203,6 +231,7 @@ function backToCreate(message, {keepPoints = false} = {}) {
 
 // stop showing / following the match (it is over)
 function leaveMatch() {
+    hideOffer();
     clearMyViewLayers();
     follower.stop();
     btnFollow.hidden = true;

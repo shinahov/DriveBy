@@ -3,7 +3,7 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const { makeContext } = require('./fake_leaflet');
 const WEB = process.argv[2] || require('path').join(__dirname, '..', '..', 'web');
-const FILES = ['status.js', 'geo.js', 'match_layers.js', 'navigation.js', 'create_flow.js', 'create.js'];
+const FILES = ['status.js', 'geo.js', 'match_layers.js', 'navigation.js', 'create_flow.js', 'offer_slider.js', 'create.js'];
 const eq = (a, b, m) => assert.strictEqual(JSON.stringify(a), JSON.stringify(b), m);
 
 function load(storage) {
@@ -84,6 +84,26 @@ const dot = t.ctx.__get('myLeftoverMarker');
 assert.ok(dot && t.onMap.has(dot), 'waiting dot shown');
 s.h.status(st('matched', { match_id: 'M1', agent_id: 'W' }));
 assert.ok(!t.onMap.has(dot), 'waiting dot removed after match');
+
+// ---- match offer: slide to accept
+assert.strictEqual(t.els['offer'].hidden, false, 'offer shown on match');
+assert.strictEqual(t.els['offer-name'].textContent, 'Max', 'walker sees the (dummy) driver');
+assert.strictEqual(t.els['offer-score'].textContent, '\u2605 4.8 \u00b7 23 trips');
+assert.ok(t.bodyClasses.has('offer-open'), 'red X moves up');
+assert.strictEqual(t.els['btn-follow'].hidden, true, 'no Navigate before accepting');
+const knob = t.els['offer-knob'];
+const drag = (to) => {
+  knob.fire('pointerdown', { clientX: 0, pointerId: 1, preventDefault() {} });
+  t.win.fire('pointermove', { clientX: to });
+  t.win.fire('pointerup', {});
+};
+drag(100);   // track 300 - knob 48 - 12 = 240 px; 100 px is not enough
+assert.strictEqual(t.els['offer'].hidden, false, 'not far enough: still offered');
+assert.strictEqual(t.ctx.__get('offer').offset, 0, 'knob slid back');
+drag(238);
+assert.strictEqual(t.els['offer'].hidden, true, 'accepted');
+assert.ok(!t.bodyClasses.has('offer-open'));
+assert.strictEqual(t.els['btn-follow'].hidden, false, 'Navigate offered after accepting');
 assert.strictEqual(t.els['btn-follow'].hidden, false);
 
 // ---- match route + progress

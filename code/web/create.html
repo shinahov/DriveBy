@@ -183,6 +183,89 @@
             border-radius: 10px;
         }
 
+        /* while a match offer is shown the red X moves up, above the slider */
+        body.offer-open .cancel-box {
+            bottom: calc(108px + env(safe-area-inset-bottom));
+        }
+
+        /* ---------- match offer: slide to accept ---------- */
+        .offer {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 1000;
+            max-width: 520px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 16px 16px 0 0;
+            box-shadow: var(--shadow);
+            padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .offer-track {
+            position: relative;
+            flex: 1;
+            height: 60px;
+            border-radius: 30px;
+            background: #f3f4f6;
+            touch-action: none;
+            user-select: none;
+        }
+
+        /* text in the middle of the track */
+        .offer-text {
+            position: absolute;
+            inset: 0 64px 0 64px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            font-size: 14px;
+            color: var(--text);
+            white-space: nowrap;
+        }
+
+        .offer-score {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        /* partner photo at the right end: the knob is slid onto it */
+        .offer-photo {
+            position: absolute;
+            right: 6px;
+            top: 6px;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            object-fit: cover;
+            box-shadow: 0 0 0 2px #16a34a;
+        }
+
+        .offer-knob {
+            position: absolute;
+            left: 6px;
+            top: 6px;
+            z-index: 1;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: #16a34a;
+            color: #fff;
+            font-size: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+            cursor: grab;
+            touch-action: none;
+        }
+
         /* ---------- navigation (right) ---------- */
         .nav-btn {
             position: fixed;
@@ -256,6 +339,18 @@
     <span id="cancel-label">Cancel trip</span>
 </div>
 
+<!-- match offer: slide to accept -->
+<div id="offer" class="offer" hidden>
+    <div id="offer-track" class="offer-track">
+        <div id="offer-text" class="offer-text">
+            <span>Accept match with <b id="offer-name"></b></span>
+            <span id="offer-score" class="offer-score"></span>
+        </div>
+        <img id="offer-photo" class="offer-photo" src="icons/avatar.svg" alt=""/>
+        <div id="offer-knob" class="offer-knob">&#x279C;</div>
+    </div>
+</div>
+
 <div id="zoom-msg"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -266,6 +361,7 @@
 <script src="match_layers.js"></script>
 <script src="navigation.js"></script>
 <script src="create_flow.js"></script>
+<script src="offer_slider.js"></script>
 <script src="create.js"></script>
 </body>
 </html>
