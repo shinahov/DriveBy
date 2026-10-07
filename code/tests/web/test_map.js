@@ -8,7 +8,7 @@ vm.createContext(t.ctx);
 for (const f of ['geo.js', 'match_layers.js', 'map.js']) {
   vm.runInContext(fs.readFileSync(WEB + '/' + f, 'utf8'), t.ctx, { filename: f });
 }
-vm.runInContext('this.__sims = () => sims; this.__focus = k => setFocus(k);', t.ctx);
+vm.runInContext('this.__sims = () => sims; this.__focus = k => setFocus(k); this.__get = n => eval(n);', t.ctx);
 const s = t.sock.s;
 function route(id, sh) { const d = [[51,7+sh],[51,7.01+sh],[51,7.02+sh],[51,7.03+sh]];
   return { match_id: id, driver_route: { geometry_latlon: d }, walk_to_pickup: { geometry_latlon: [[51.001,7+sh], d[1]] },
@@ -56,7 +56,15 @@ t.els['btn-speed'].onclick();
 assert.strictEqual(t.els['speedBox'].style.display, 'block');
 t.map.fire('click', { latlng: { lat: 51, lng: 7 } });
 assert.strictEqual(t.els['speedBox'].style.display, 'none');
-// speed control sends the value
-t.els['speedRange'].value = '0.5'; t.els['speedRange'].onchange();
-assert.strictEqual(JSON.stringify(t.sent.at(-1)), '{"type":"speed","value":0.5}');
+// speed slider is exponential: 0.0025 (1/20 real time) .. 2.0 (40x)
+const speedAt = pos => { t.els['speedRange'].value = String(pos); t.els['speedRange'].onchange(); return t.sent.at(-1).value; };
+assert.ok(Math.abs(speedAt(0) - 0.0025) < 1e-9);
+assert.ok(Math.abs(speedAt(1000) - 2.0) < 1e-9);
+assert.ok(Math.abs(speedAt(Number(t.els['speedRange'].value = String(t.ctx.__get('sliderFromSpeed')(1.0)))) - 1.0) < 0.01, 'default position = 1.0');
+assert.ok(speedAt(11) - speedAt(10) < speedAt(991) - speedAt(990), 'small steps at the slow end, big at the fast end');
+assert.ok(speedAt(t.ctx.__get('sliderFromSpeed')(0.05)) - 0.05 < 0.001, 'real time reachable');
+t.els['speedRange'].value = '0'; t.els['speedRange'].oninput();
+assert.strictEqual(t.els['speedVal'].textContent, '0.05x real time');
+t.els['speedRange'].value = '1000'; t.els['speedRange'].oninput();
+assert.strictEqual(t.els['speedVal'].textContent, '40x real time');
 console.log('map.js OK');
