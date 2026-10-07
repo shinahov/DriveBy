@@ -61,6 +61,7 @@ let myMatch = null;        // MatchLayers of my match
 let myFrame = null;        // newest position frame of my match (phase + progress)
 
 const follower = new MapFollower(map);
+follower.onUserTakeover = showFollowButtons;  // user moved the map -> offer "Navigate" again
 
 const createFlow = new CreateFlow(map, {
     isActive: () => viewMode === "create",

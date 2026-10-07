@@ -14,7 +14,24 @@ class MapFollower {
     constructor(map) {
         this.map = map;
         this.enabled = false;
+        this.onUserTakeover = null;   // called when the user moves the map himself
         this.reset();
+
+        // the user drags or zooms -> stop following, otherwise we fight over the map.
+        // "dragstart" only comes from the user (panTo/flyTo don't fire it); for zoom we
+        // listen to the mouse wheel and two-finger touch, because flyTo also fires "zoomstart".
+        map.on("dragstart", () => this.userTookOver());
+        const el = map.getContainer();
+        el.addEventListener("wheel", () => this.userTookOver(), {passive: true});
+        el.addEventListener("touchstart", e => {
+            if (e.touches.length > 1) this.userTookOver();
+        }, {passive: true});
+    }
+
+    userTookOver() {
+        if (!this.enabled) return;
+        this.stop();
+        if (this.onUserTakeover) this.onUserTakeover();
     }
 
     reset() {
