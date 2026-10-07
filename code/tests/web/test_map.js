@@ -51,6 +51,11 @@ t.ctx.__focus('A:w2');
 const visibleCircles = [...t.onMap].filter(l => l.kind === 'circle' && l.opts.radius === 5);
 assert.strictEqual(visibleCircles.length, 1);
 assert.strictEqual(JSON.stringify(visibleCircles[0].ll), '[51.3,7.3]');
+// speed box closes on a click on the map
+t.els['btn-speed'].onclick();
+assert.strictEqual(t.els['speedBox'].style.display, 'block');
+t.map.fire('click', { latlng: { lat: 51, lng: 7 } });
+assert.strictEqual(t.els['speedBox'].style.display, 'none');
 // speed control sends the value
 t.els['speedRange'].value = '0.5'; t.els['speedRange'].onchange();
 assert.strictEqual(JSON.stringify(t.sent.at(-1)), '{"type":"speed","value":0.5}');

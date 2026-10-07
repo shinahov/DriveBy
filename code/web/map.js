@@ -204,6 +204,11 @@ speedRange.oninput = () => {
     speedVal.textContent = speedRange.value;
 };
 
+// a click somewhere on the map closes the speed box
+map.on("click", () => {
+    speedBox.style.display = "none";
+});
+
 speedRange.onchange = () => {
     socket.send({type: "speed", value: Number(speedRange.value)});
     speedBox.style.display = "none";
