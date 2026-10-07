@@ -47,7 +47,7 @@ function showStopButton() {
 }
 
 // ---------- state ----------
-let viewMode = "create";   // create -> agent (waiting) -> match -> done
+let viewMode = "create";   // create -> agent (waiting) -> match -> back to create when done
 let myRequestId = null;    // request_id of my agent (null until the server queued it)
 let createdKind = null;    // "walker" | "driver"
 let targetMatchId = null;
@@ -139,8 +139,11 @@ function handleStatus(st) {
     if (st.status === Status.DONE) {
         leaveMatch();
         forgetMyAgent();
-        viewMode = "done";
-        setMsg("Arrived. Trip finished.");
+        myRequestId = null;
+        viewMode = "create";
+        createFlow.reset();
+        createFlow.unlock();
+        setMsg("Arrived. Trip finished.\nYou can create a new agent.");
         return;
     }
 
