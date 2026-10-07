@@ -192,6 +192,18 @@ class WsBusTests(unittest.TestCase):
         self.assertEqual(items[0], {"type": "routes"})
         self.assertLessEqual(len(items), ws_bus.MAX_BACKLOG)
 
+    def test_newest_status_is_remembered(self):
+        async def go():
+            app = self.make_app()
+            app["last_status_by_req"] = {}
+            await ws_bus.send_status(app, "r1", "not_matched", agent_id="a")
+            await ws_bus.send_status(app, "r1", "matched", match_id="m")
+            await ws_bus.send_status(app, "nobody-listens", "done")
+            return app["last_status_by_req"]
+        last = self.run_async(go())
+        self.assertEqual(last["r1"]["status"], "matched")
+        self.assertEqual(last["nobody-listens"]["status"], "done")
+
     def test_no_subscriber_no_message(self):
         async def go():
             app = self.make_app()

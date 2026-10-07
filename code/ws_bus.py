@@ -27,7 +27,15 @@ async def publish_by_id(app: web.Application, request_id: str, event: Dict[str, 
 async def send_status(app: web.Application, request_id: str, status: str, **extra) -> None:
     event = {"type": "status", "status": status, "request_id": request_id}
     event.update(extra)
+    remember_status(app, request_id, event)
     await publish_by_id(app, request_id, event)
+
+
+def remember_status(app: web.Application, request_id: str, event: Dict[str, Any]) -> None:
+    """Keep the newest status per request, so a reloaded page can get it again."""
+    last = app.get("last_status_by_req")
+    if last is not None:
+        last[request_id] = event
 
 
 async def publish(app: web.Application, event: Dict[str, Any], droppable: bool = False) -> None:

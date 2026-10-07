@@ -10,6 +10,7 @@ from aiohttp import web, WSMsgType
 import config
 from simulation import start_simulation
 from status import Status
+from ws_bus import remember_status
 
 
 def create_uuid() -> str:
@@ -161,23 +162,26 @@ async def ws_agent_handler(request: web.Request) -> web.WebSocketResponse:
                         "payload": payload
                     })
 
+                    remember_status(request.app, request_id, {
+                        "type": "status", "status": Status.QUEUED, "request_id": request_id})
                     await broadcast_status(request_id, Status.QUEUED)
                     continue
                 if t == "subscribe":
+                    # e.g. after a reconnect or page reload: send the newest state again
                     req_id = data.get("request_id")
+                    last_status = request.app["last_status_by_req"].get(req_id)
+                    if last_status is None:
+                        await ws.send_str(json.dumps({
+                            "type": "status", "request_id": req_id, "status": Status.UNKNOWN}))
+                        continue
 
                     add_subscriber(req_id, ws)
-                    last_r = request.app.get(
-                        "last_routes_by_req",
-                        {}).get(req_id)
-                    if last_r is not None:
-                        await ws.send_str(json.dumps({"type": "routes", "data": last_r}))
+                    await ws.send_str(json.dumps(last_status))
+                    last_routes = request.app["last_routes_by_req"].get(req_id)
+                    if last_routes is not None:
+                        await ws.send_str(json.dumps({"type": "routes", "data": last_routes}))
                     await ws.send_str(json.dumps({
-                         "type": "status",
-                         "request_id": req_id,
-                         "status": Status.SUBSCRIBED
-                    }))
-
+                        "type": "status", "request_id": req_id, "status": Status.SUBSCRIBED}))
                     continue
                 await ws.send_str(json.dumps({"error": "unknown message type"}))
 
@@ -238,6 +242,7 @@ async def on_startup(app: web.Application):
     app["global_ws"] = set()
     app["subscribers"] = subscribers
     app["last_routes_by_req"] = {}
+    app["last_status_by_req"] = {}
     app["speed"] = config.DEFAULT_SPEED
 
     loop = asyncio.get_running_loop()

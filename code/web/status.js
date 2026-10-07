@@ -7,6 +7,7 @@ const Status = Object.freeze({
     MATCHED: "matched",
     DONE: "done",
     ERROR: "error",
+    UNKNOWN: "unknown",
 });
 
 // Phase of a match, sent in every position frame (frame.phase).

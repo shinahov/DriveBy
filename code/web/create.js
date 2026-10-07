@@ -72,6 +72,29 @@ const createFlow = new CreateFlow(map, {
     },
 });
 
+// ---------- remember my agent across page reloads (per browser tab) ----------
+const STORAGE_KEY = "driveby.myAgent";
+
+function saveMyAgent() {
+    try {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({requestId: myRequestId, kind: createdKind}));
+    } catch (e) { /* storage blocked: reload just starts over */ }
+}
+
+function forgetMyAgent() {
+    try {
+        sessionStorage.removeItem(STORAGE_KEY);
+    } catch (e) { /* ignore */ }
+}
+
+function loadMyAgent() {
+    try {
+        return JSON.parse(sessionStorage.getItem(STORAGE_KEY));
+    } catch (e) {
+        return null;
+    }
+}
+
 // ---------- connection: what to do with each message type ----------
 const socket = new LiveSocket("/ws_agent")
     .on("position", msg => updateMatchPosition(msg.data.frame))
@@ -87,6 +110,8 @@ socket.onConnect = () => {
 function handleStatus(st) {
     if (st.status === Status.QUEUED) {
         myRequestId = st.request_id;
+        saveMyAgent();
+        if (viewMode === "create") viewMode = "agent";
         setMsg(`Queued.\nrequest_id=${st.request_id}`);
         return;
     }
@@ -113,14 +138,33 @@ function handleStatus(st) {
 
     if (st.status === Status.DONE) {
         leaveMatch();
+        forgetMyAgent();
         viewMode = "done";
         setMsg("Arrived. Trip finished.");
         return;
     }
 
-    if (st.status === Status.ERROR) {
-        setMsg(`Error:\n${st.message}`);
+    if (st.status === Status.UNKNOWN) {
+        // the server does not know my agent any more (e.g. it was restarted)
+        leaveMatch();
+        forgetMyAgent();
+        myRequestId = null;
+        viewMode = "create";
+        createFlow.reset();
         createFlow.unlock();
+        setMsg("Your previous agent is gone (server restarted?).\nCreate a new one.");
+        return;
+    }
+
+    if (st.status === Status.SUBSCRIBED) return;
+
+    if (st.status === Status.ERROR) {
+        // the agent could not be created -> let the user try again
+        forgetMyAgent();
+        myRequestId = null;
+        viewMode = "create";
+        createFlow.unlock();
+        setMsg(`Error:\n${st.message}`);
         return;
     }
 
@@ -254,4 +298,15 @@ document.getElementById("btn-cancel").onclick = () => {
     window.close();  // closes this tab, the overview stays open
 };
 
-setMsg("Choose agent type.");
+// ---------- start ----------
+const saved = loadMyAgent();
+if (saved && saved.requestId) {
+    // page was reloaded: the subscribe in socket.onConnect brings back the state
+    myRequestId = saved.requestId;
+    createdKind = saved.kind;
+    viewMode = "agent";
+    createFlow.lock();
+    setMsg("Reconnecting to your agent...");
+} else {
+    setMsg("Choose agent type.");
+}

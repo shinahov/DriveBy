@@ -11,3 +11,4 @@ class Status(str, Enum):
     MATCHED = "matched"          # agent got a partner
     DONE = "done"                # trip / route finished
     ERROR = "error"              # request failed (e.g. OSRM down)
+    UNKNOWN = "unknown"          # subscribe to a request_id the server does not know (e.g. after a restart)

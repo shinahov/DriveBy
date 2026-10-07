@@ -101,7 +101,7 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(frame["driver"]["req_id"], d_rid)
         await ws.close()
 
-    async def test_subscribe_later_replays_routes(self):
+    async def test_subscribe_later_replays_status_and_routes(self):
         ws = await self.client.ws_connect("/ws_agent")
         await ws.send_json({"type": "create_request", "payload": WALKER})
         w_rid = (await wait_for(ws, is_status("queued")))["request_id"]
@@ -113,10 +113,19 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
         # e.g. page reload: a new connection subscribes to the old request_id
         ws2 = await self.client.ws_connect("/ws_agent")
         await ws2.send_json({"type": "subscribe", "request_id": w_rid})
-        msg = await wait_for(ws2, lambda m: m.get("type") in ("routes", "status"))
-        self.assertEqual(msg["type"], "routes")
-        self.assertEqual(len(msg["data"]["routes"]), 1)
+        first = await wait_for(ws2, lambda m: m.get("type") in ("routes", "status"))
+        self.assertEqual((first["type"], first["status"]), ("status", "matched"))
+        routes = await wait_for(ws2, lambda m: m.get("type") == "routes")
+        self.assertEqual(len(routes["data"]["routes"]), 1)
+        await wait_for(ws2, is_status("subscribed", w_rid))
         await ws2.close()
+
+    async def test_subscribe_unknown_request(self):
+        ws = await self.client.ws_connect("/ws_agent")
+        await ws.send_json({"type": "subscribe", "request_id": "does-not-exist"})
+        msg = await wait_for(ws, lambda m: m.get("type") == "status")
+        self.assertEqual(msg["status"], "unknown")
+        await ws.close()
 
     async def test_unmatched_agent_gets_own_position(self):
         ws = await self.client.ws_connect("/ws_agent")
