@@ -36,3 +36,6 @@ dist/
 #key
 *.txt
 !requirements.txt
+
+# Claude instructions (local only)
+CLAUDE.md
