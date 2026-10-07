@@ -1,7 +1,81 @@
-// request_id of the agent this page created (null until the server queued it)
-let myRequestId = null;
+// Page for ONE user: create a walker or driver, then watch it (and its match).
+// Parts: CreateFlow (create_flow.js) picks start/dest, MatchLayers (match_layers.js)
+// draws the match, MapFollower (navigation.js) follows the agent.
 
-// connection to the server: what to do with each message type
+// ---------- map ----------
+const map = L.map("map", {rotate: true, bearing: 0, rotateControl: true});
+
+requestAnimationFrame(() => {
+    map.setView([51.2562, 7.1508], 12);
+    map.invalidateSize(true);
+});
+map.whenReady(() => map.invalidateSize(true));
+
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    maxNativeZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors"
+}).addTo(map);
+
+const icon = (file, size) => L.icon({
+    iconUrl: "icons/" + file,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    tooltipAnchor: [0, -size / 2]
+});
+const walkerIcon = icon("walker.png", 24);
+const driverIcon = icon("car.png", 26);
+const pickDropIcon = icon("pick_drop.png", 24);
+
+// ---------- panel ----------
+const msgEl = document.getElementById("msg");
+const btnFollow = document.getElementById("btn-follow");
+const btnStopFollow = document.getElementById("btn-stop-follow");
+
+function setMsg(text) {
+    msgEl.textContent = text;
+}
+
+function showFollowButtons() {
+    btnFollow.hidden = false;
+    btnStopFollow.hidden = true;
+}
+
+function showStopButton() {
+    btnFollow.hidden = true;
+    btnStopFollow.hidden = false;
+}
+
+// ---------- state ----------
+let viewMode = "create";   // create -> agent (waiting for a match) -> match
+let myRequestId = null;    // request_id of my agent (null until the server queued it)
+let createdKind = null;    // "walker" | "driver"
+let targetMatchId = null;
+let targetAgentId = null;
+
+// what is drawn for my agent
+let myWalkerMarker = null;
+let myDriverMarker = null;
+let myLeftoverMarker = null;
+let myMatch = null;        // MatchLayers of my match
+let myDriverIdx = null;    // progress along the routes (indices into the point lists)
+let myWalkerPIdx = null;
+let myWalkerDIdx = null;
+let driverRoutePoints = null;
+let walkerRoutePoints = null;
+
+const follower = new MapFollower(map);
+
+const createFlow = new CreateFlow(map, {
+    isActive: () => viewMode === "create",
+    setMsg,
+    onCreate: payload => {
+        createdKind = payload.type;
+        return socket.send({type: "create_request", payload});
+    },
+});
+
+// ---------- connection: what to do with each message type ----------
 const socket = new LiveSocket("/ws_agent")
     .on("position", msg => updateMyPosition(msg.data))
     .on("routes", msg => updateMyRoutes(msg.data))
@@ -43,179 +117,14 @@ function handleStatus(st) {
 
     if (st.status === Status.ERROR) {
         setMsg(`Error:\n${st.message}`);
-        unlockCreateButtons();
+        createFlow.unlock();
         return;
     }
 
     console.log("unhandled status:", st.status, st);
 }
 
-const map = L.map("map", {
-    rotate: true,
-    bearing: 0,
-    rotateControl: true
-});
-
-requestAnimationFrame(() => {
-    map.setView([51.2562, 7.1508], 12);
-    map.invalidateSize(true);
-});
-
-map.whenReady(() => map.invalidateSize(true));
-
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    maxNativeZoom: 19,
-    attribution: "&copy; OpenStreetMap contributors"
-}).addTo(map);
-
-
-const msgEl = document.getElementById("msg");
-const btnWalker = document.getElementById("btn-kind-walker");
-const btnDriver = document.getElementById("btn-kind-driver");
-const btnConfirm = document.getElementById("btn-confirm");
-const btnCreate = document.getElementById("btn-create");
-const btnCancel = document.getElementById("btn-cancel");
-const btnFollow = document.getElementById("btn-follow");
-const btnStopFollow = document.getElementById("btn-stop-follow");
-
-function showFollowButtons() {
-    btnFollow.hidden = false;
-    btnStopFollow.hidden = true;
-}
-
-function showStopButton() {
-    btnFollow.hidden = true;
-    btnStopFollow.hidden = false;
-}
-
-function hideFollowButtons() {
-    btnFollow.hidden = true;
-    btnStopFollow.hidden = true;
-}
-
-function setMsg(s) {
-    msgEl.textContent = s;
-}
-
-function logMsg(s) {
-    msgEl.textContent += `\n${s}`;
-}
-
-function fmt(p) {
-    return `${p[0].toFixed(6)}, ${p[1].toFixed(6)}`;
-}
-
-// Create-flow state (start/dest picking)
-
-let kind = null;
-let step = "choose_kind"; // choose_kind | pick_start | pick_dest | ready
-let pendingPoint = null; // [lat, lon]
-let startPoint = null;   // [lat, lon]
-let destPoint = null;    // [lat, lon]
-
-// Temporary create UI layers
-let startMarker = null;
-let destMarker = null;
-let previewLine = null;
-
-// After Create we enter view mode
-let viewMode = "create"; // create | match | agent
-let targetMatchId = null;
-let targetAgentId = null;
-let createdKind = null;  // remember what user created (walker/driver)
-
-// Render layers for my view
-let myWalkerMarker = null;
-let myDriverMarker = null;
-let myLeftoverMarker = null;
-let myWalkerPIdx = null;
-let myWalkerDIdx = null;
-let myDriverIdx = null;
-let driverRoutePoints = null;
-let walkerRoutePoints = null;
-
-
-let myMatch = null;       // MatchLayers of my match (routes + pickup/dropoff)
-
-
-// follows my agent like a navigation app (navigation.js)
-const follower = new MapFollower(map);
-
-
-// Helpers: fetching without cache
-
-const walkerIcon = L.icon({
-    iconUrl: "icons/walker.png",
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-    tooltipAnchor: [0, -12]
-});
-
-const driverIcon = L.icon({
-    iconUrl: "icons/car.png",
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
-    tooltipAnchor: [0, -13]
-});
-
-const pickDropIcon = L.icon({
-    iconUrl: "icons/pick_drop.png",
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-    tooltipAnchor: [0, -12]
-});
-
-const destIcon = L.icon({
-    iconUrl: "icons/dest.png",
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-    tooltipAnchor: [0, -12]
-});
-
-
-function clearPreview() {
-    if (previewLine) {
-        map.removeLayer(previewLine);
-        previewLine = null;
-    }
-}
-
-function redrawPreview() {
-    // while picking DEST we want a live visual line from start to current point.
-    clearPreview();
-    const a = startPoint;
-    const b = pendingPoint || destPoint;
-    if (a && b) {
-        previewLine = L.polyline([a, b], {weight: 3, dashArray: "6,6"}).addTo(map);
-    }
-}
-
-function resetCreateState() {
-    // Reset only the "create selection" state (not the final view mode).
-    kind = null;
-    step = "choose_kind";
-    pendingPoint = null;
-    startPoint = null;
-    destPoint = null;
-
-    btnConfirm.disabled = true;
-    btnCreate.disabled = true;
-
-    if (startMarker) {
-        map.removeLayer(startMarker);
-        startMarker = null;
-    }
-    if (destMarker) {
-        map.removeLayer(destMarker);
-        destMarker = null;
-    }
-    clearPreview();
-}
-
-
-//clear old my view layers
-
+// ---------- drawing my agent ----------
 function removeIfExists(layer) {
     if (layer && map.hasLayer(layer)) map.removeLayer(layer);
     return null;
@@ -228,100 +137,63 @@ function clearMyViewLayers() {
     myWalkerPIdx = null;
     myWalkerDIdx = null;
     myDriverIdx = null;
-
     if (myMatch) myMatch.remove();
     myMatch = null;
 }
 
-
-function updateMyPosition(data) {
-    if (viewMode !== "match" && viewMode !== "agent") return;
-
-    if (viewMode === "match") {
-        const frame = data?.frame;
-        if (!frame) return;
-
-        const s = frame;
-
-
-        if (targetMatchId == null && s.sim_id != null) targetMatchId = s.sim_id;
-
-
-        if (targetMatchId != null && String(s.sim_id) !== String(targetMatchId)) return;
-        if (!s) return;
-
-        // Show BOTH markers in match view (driver + walker).
-        // match is a pair; seeing both helps debugging and makes the view complete.
-
-        if (s.walker && typeof s.walker.lat === "number" && typeof s.walker.lon === "number") {
-            const latlng = [s.walker.lat, s.walker.lon];
-            if (!myWalkerMarker) {
-                myWalkerMarker = L.marker(latlng, {icon: walkerIcon})
-                    .addTo(map).bindTooltip("Walker (match)");
-            } else {
-                myWalkerMarker.setLatLng(latlng);
-            }
-            myWalkerPIdx = Number.isInteger(s.walker.pIdx) ? s.walker.pIdx : 0;
-            myWalkerDIdx = Number.isInteger(s.walker.dIdx) ? s.walker.dIdx : 0;
-
-            if (createdKind === "walker") {
-                follower.update(latlng, walkerRoutePoints, myWalkerPIdx, 5, 30);
-            }
-
-        }
-
-        if (s.driver && typeof s.driver.lat === "number" && typeof s.driver.lon === "number") {
-            const latlng = [s.driver.lat, s.driver.lon];
-            if (!myDriverMarker) {
-                myDriverMarker = L.marker(latlng, {icon: driverIcon})
-                    .addTo(map).bindTooltip("Driver (match)");
-            } else {
-                myDriverMarker.setLatLng(latlng);
-            }
-            myDriverIdx = Number.isInteger(s.driver.idx) ? s.driver.idx : 0;
-            if (createdKind === "driver") {
-                follower.update(latlng, driverRoutePoints, myDriverIdx, 20, 60);
-            }
-        }
-
-        updateMyProgress();
-        return;
-    }
-
-    if (viewMode === "agent") {
-        const lD = Array.isArray(data.leftover_drivers) ? data.leftover_drivers : [];
-        const lW = Array.isArray(data.leftover_walkers) ? data.leftover_walkers : [];
-
-        const a = [...lD, ...lW].find(x => String(x.agent_id) === String(targetAgentId));
-        if (!a) {
-            // maybe matched now
-            const sims = Array.isArray(data.sims) ? data.sims : [];
-            const sim = sims.find(s =>
-                String(s.driver?.agent_id) === String(targetAgentId) ||
-                String(s.walker?.agent_id) === String(targetAgentId)
-            );
-
-            if (sim) {
-                viewMode = "match";
-                targetMatchId = sim.sim_id; // sim_id == match_id in your JSON
-                setMsg(`Agent matched. Switching to match view...\nmatch_id=${targetMatchId}`);
-                clearMyViewLayers(); // remove leftover marker + old layers
-            }
-            return;
-        }
-
-        const latlng = [a.lat, a.lon];
-        if (!myLeftoverMarker) {
-            myLeftoverMarker = L.circleMarker(latlng,
-                {radius: 9, weight: 2, fillOpacity: 1}).addTo(map)
-                .bindTooltip("Your agent (unmatched)");
-            map.setView(latlng, 14);
-        } else {
-            myLeftoverMarker.setLatLng(latlng);
-        }
-    }
+// create the marker the first time, move it afterwards
+function placeMarker(marker, latlng, makeMarker) {
+    if (marker) return marker.setLatLng(latlng);
+    return makeMarker(latlng).addTo(map);
 }
 
+function updateMyPosition(data) {
+    if (viewMode === "match") updateMatchPosition(data?.frame);
+    if (viewMode === "agent") updateAgentPosition(data);
+}
+
+// both agents of my match (frame = one entry of the server's position message)
+function updateMatchPosition(frame) {
+    if (!frame) return;
+    if (targetMatchId == null && frame.sim_id != null) targetMatchId = frame.sim_id;
+    if (String(frame.sim_id) !== String(targetMatchId)) return;
+
+    if (frame.walker) {
+        const latlng = [frame.walker.lat, frame.walker.lon];
+        myWalkerMarker = placeMarker(myWalkerMarker, latlng,
+            p => L.marker(p, {icon: walkerIcon}).bindTooltip("Walker (match)"));
+        myWalkerPIdx = Number.isInteger(frame.walker.pIdx) ? frame.walker.pIdx : 0;
+        myWalkerDIdx = Number.isInteger(frame.walker.dIdx) ? frame.walker.dIdx : 0;
+        if (createdKind === "walker") {
+            follower.update(latlng, walkerRoutePoints, myWalkerPIdx, 5, 30);
+        }
+    }
+
+    if (frame.driver) {
+        const latlng = [frame.driver.lat, frame.driver.lon];
+        myDriverMarker = placeMarker(myDriverMarker, latlng,
+            p => L.marker(p, {icon: driverIcon}).bindTooltip("Driver (match)"));
+        myDriverIdx = Number.isInteger(frame.driver.idx) ? frame.driver.idx : 0;
+        if (createdKind === "driver") {
+            follower.update(latlng, driverRoutePoints, myDriverIdx, 20, 60);
+        }
+    }
+
+    updateMyProgress();
+}
+
+// my agent while it waits for a match
+function updateAgentPosition(data) {
+    const lD = Array.isArray(data.leftover_drivers) ? data.leftover_drivers : [];
+    const lW = Array.isArray(data.leftover_walkers) ? data.leftover_walkers : [];
+    const a = [...lD, ...lW].find(x => String(x.agent_id) === String(targetAgentId));
+    if (!a) return;
+
+    const latlng = [a.lat, a.lon];
+    if (!myLeftoverMarker) map.setView(latlng, 14);
+    myLeftoverMarker = placeMarker(myLeftoverMarker, latlng,
+        p => L.circleMarker(p, {radius: 9, weight: 2, fillOpacity: 1}).bindTooltip("Your agent (unmatched)"));
+}
 
 // the server sends the routes of my match once (and again after a reconnect)
 function updateMyRoutes(data) {
@@ -338,7 +210,7 @@ function updateMyRoutes(data) {
 
     driverRoutePoints = myMatch.driver;
     walkerRoutePoints = myMatch.walkTo.concat(myMatch.walkFrom);
-    clearPreview();
+    createFlow.clearPreview();
 
     if (firstTime) map.fitBounds(myMatch.allPoints(), {padding: [30, 30]});
 }
@@ -353,91 +225,7 @@ function updateMyProgress() {
     });
 }
 
-
-btnWalker.onclick = () => {
-    if (viewMode !== "create") return;
-    kind = "walker";
-    step = "pick_start";
-    pendingPoint = null;
-    btnConfirm.disabled = true;
-    btnCreate.disabled = true;
-    setMsg("Walker: click map to select START, then Confirm.");
-};
-
-btnDriver.onclick = () => {
-    if (viewMode !== "create") return;
-    kind = "driver";
-    step = "pick_start";
-    pendingPoint = null;
-    btnConfirm.disabled = true;
-    btnCreate.disabled = true;
-    setMsg("Driver: click map to select START, then Confirm.");
-};
-
-btnCancel.onclick = () => {
-    //user wants to close child without touching the main window.
-    window.close();
-};
-
-btnConfirm.onclick = () => {
-    if (viewMode !== "create") return;
-    if (!pendingPoint) return;
-
-    if (step === "pick_start") {
-        startPoint = pendingPoint;
-        pendingPoint = null;
-        btnConfirm.disabled = true;
-        step = "pick_dest";
-        setMsg(`${kind}: START = ${fmt(startPoint)}\nNow click map to select DEST, then Confirm.`);
-        redrawPreview();
-        return;
-    }
-
-    if (step === "pick_dest") {
-        destPoint = pendingPoint;
-        pendingPoint = null;
-        btnConfirm.disabled = true;
-        step = "ready";
-        btnCreate.disabled = false;
-        setMsg(`${kind}: DEST = ${fmt(destPoint)}\nClick Create.`);
-        redrawPreview();
-    }
-};
-
-function lockCreateButtons() {
-    btnCreate.disabled = true;
-    btnConfirm.disabled = true;
-    btnWalker.disabled = true;
-    btnDriver.disabled = true;
-}
-
-function unlockCreateButtons() {
-    btnWalker.disabled = false;
-    btnDriver.disabled = false;
-    btnConfirm.disabled = !(step === "pick_start" || step === "pick_dest");
-    btnCreate.disabled = (step !== "ready");
-}
-
-btnCreate.onclick = () => {
-    if (viewMode !== "create") return;
-    if (!kind || !startPoint || !destPoint) return;
-
-    const payload = {
-        type: kind,
-        start: {lat: startPoint[0], lon: startPoint[1]},
-        dest: {lat: destPoint[0], lon: destPoint[1]}
-    };
-
-    lockCreateButtons();  // prevent double-submit
-    setMsg("Sending create request...");
-    createdKind = kind;
-
-    if (!socket.send({type: "create_request", payload})) {
-        setMsg("Not connected to the server yet. Try again in a moment.");
-        unlockCreateButtons();
-    }
-};
-
+// ---------- buttons ----------
 btnFollow.onclick = () => {
     follower.start();
     showStopButton();
@@ -448,40 +236,8 @@ btnStopFollow.onclick = () => {
     showFollowButtons();
 };
 
+document.getElementById("btn-cancel").onclick = () => {
+    window.close();  // closes this tab, the overview stays open
+};
 
-// Map click: pick points (create mode only)
-
-map.on("click", (ev) => {
-    if (viewMode !== "create") return;
-    if (step !== "pick_start" && step !== "pick_dest") return;
-
-    pendingPoint = [ev.latlng.lat, ev.latlng.lng];
-    btnConfirm.disabled = false;
-
-    if (step === "pick_start") {
-        if (!startMarker) {
-            startMarker = L.circleMarker(pendingPoint, {radius: 7, weight: 2, fillOpacity: 1})
-                .addTo(map).bindTooltip("START (pending)");
-        } else {
-            startMarker.setLatLng(pendingPoint);
-        }
-        setMsg(`Choose ${kind}: START = ${fmt(pendingPoint)}\nClick Confirm to set START.`);
-    } else {
-        if (!destMarker) {
-            destMarker = L.marker(pendingPoint, {icon: destIcon}).addTo(map).bindTooltip("DEST");
-        } else {
-            destMarker.setLatLng(pendingPoint);
-        }
-        setMsg(`Choose ${kind}: DEST = ${fmt(pendingPoint)}\nClick Confirm to set DEST.`);
-
-    }
-
-    redrawPreview();
-});
-
-
-//  Init
-
-viewMode = "create";
-resetCreateState();
 setMsg("Choose agent type.");
