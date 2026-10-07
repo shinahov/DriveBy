@@ -133,7 +133,7 @@ async def broadcast_status(request_id: str, status: str):
 
 
 async def ws_agent_handler(request: web.Request) -> web.WebSocketResponse:
-    ws = web.WebSocketResponse(heartbeat=20)
+    ws = web.WebSocketResponse(heartbeat=20, compress=False)  # no deflate: aiohttp rejected compressed browser frames ("non-zero reserved bits")
     await ws.prepare(request)
 
     request_id = request.query.get("request_id")
@@ -199,7 +199,7 @@ async def ws_agent_handler(request: web.Request) -> web.WebSocketResponse:
 
 # WebSocket handler for global updates
 async def ws_handler(request: web.Request) -> web.WebSocketResponse:
-    ws = web.WebSocketResponse(heartbeat=20)
+    ws = web.WebSocketResponse(heartbeat=20, compress=False)  # no deflate: aiohttp rejected compressed browser frames ("non-zero reserved bits")
     await ws.prepare(request)
 
     request.app["global_ws"].add(ws)
