@@ -106,277 +106,6 @@ function fmt(p) {
     return `${p[0].toFixed(6)}, ${p[1].toFixed(6)}`;
 }
 
-function lerpAngle(a, b, t) {
-    let delta = (b - a + 540) % 360 - 180;
-    return (a + delta * t + 360) % 360;
-}
-
-
-// Smoothly set bearing
-function setSmoothBearing(targetBearing) {
-    const now = Date.now();
-    const dt = (now - lastBearingUpdateTime) / 1000; // seconds
-    lastBearingUpdateTime = now;
-
-    const t = Math.min(dt, 1); // smoothing factor
-    smoothBearing = lerpAngle(smoothBearing, targetBearing, t);
-    map.setBearing(-smoothBearing);
-}
-
-let flying = false;
-let zoomOld = null;
-let pendingCenter = null;
-let pendingZoom = null;
-
-let desiredZoom = null;
-let flyToCalls = 0;
-
-
-function offsetBySegLen(zoom) {
-    const table = {
-        20: 220,
-        19: 200,
-        18: 170,
-        16: 120
-    };
-    return table[zoom] ?? 150;
-}
-
-
-function offsetCenterByHeading(latlng, zoom, headingDeg, offsetPx) {
-    // latlng to pixel at zoom
-    const p = map.project(latlng, zoom);
-
-    // Heading
-    const rad = headingDeg * Math.PI / 180;
-
-    // In screen/world pixel coords:
-    // x grows right, y grows down
-    const dx = Math.sin(rad) * offsetPx;
-    const dy = -Math.cos(rad) * offsetPx;    // minus because y down
-
-    const p2 = L.point(p.x + dx, p.y + dy);
-
-    // back to latlng
-    return map.unproject(p2, zoom);
-}
-
-
-function onFlyFinished() {
-    flying = false;
-
-    // Apply last pending request once (latest-wins)
-    if (pendingCenter || pendingZoom !== null) {
-        const c = pendingCenter || map.getCenter();
-        const z = (pendingZoom !== null) ? pendingZoom : map.getZoom();
-
-        pendingCenter = null;
-        pendingZoom = null;
-
-        // Re-enter follow logic once with latest target
-        // (we call flyTo/panTo exactly once)
-        const curZ = map.getZoom();
-        const needZoom = Math.abs(curZ - z) > 0.5;
-
-        if (needZoom) {
-            flyToCalls++;
-            console.log("[FOLLOW] flyTo (pending)", {flyToCalls, z, curZ});
-
-            zoomOld = z;
-            flying = true;
-            map.once("moveend", onFlyFinished);
-
-            map.flyTo(c, z, {
-                animate: true,
-                duration: 1.2,
-                easeLinearity: 0.5
-            });
-        } else {
-            // just pan after fly finished
-            map.panTo(c, {animate: true, duration: 0.25});
-        }
-    }
-}
-
-
-function followWithRotation(centerLatLng, heading, zoom, segLenM) {
-    if (!followEnabled) return;
-    lastFollowTick = Date.now();
-
-    desiredZoom = zoom;
-
-    const currentMapZoom = map.getZoom();
-
-    console.log("[FOLLOW] tick", {
-        desiredZoom: zoom,
-        currentMapZoom,
-        zoomOld,
-        flying
-    });
-
-    setSmoothBearing(heading);
-
-    const offsetPx = offsetBySegLen(zoom);
-    const centerLatLngOffset = offsetCenterByHeading(centerLatLng, zoom, heading, offsetPx);
-
-    // If a fly is running, store the latest request and exit
-    if (flying) {
-        pendingCenter = centerLatLngOffset;
-        pendingZoom = zoom;
-        return;
-    }
-
-    const needZoom = (zoomOld === null) || (Math.abs(currentMapZoom - zoom) > 0.5);
-
-    if (needZoom) {
-        flyToCalls++;
-        console.log("[FOLLOW] flyTo", {flyToCalls, zoom, zoomOld, currentMapZoom});
-
-        zoomOld = zoom;
-        flying = true;
-
-        // Ensure we always end flying
-        map.once("moveend", onFlyFinished);
-
-        map.flyTo(centerLatLngOffset, zoom, {
-            animate: true,
-            duration: 1.5,
-            easeLinearity: 0.5
-        });
-        return;
-    }
-
-    // Normal follow: pan only
-    pendingCenter = null;
-    pendingZoom = null;
-
-    map.panTo(centerLatLngOffset, {animate: true, duration: 0.25});
-}
-
-map.on("zoomend", () => {
-    console.log("[MAP] zoomend real=", map.getZoom(), "desired=", desiredZoom);
-});
-
-
-// Get heading and length of segment starting at points[idx]
-function headingAndSegLens(points, idx, shortLook = 8, longLook = 50) {
-    if (!Array.isArray(points) || points.length < 2) {  // the bug (segLongM was 0 first few kilometers) is disappeared after adding logging (???)
-        console.warn("[headingAndSegLens] invalid points", {
-            isArray: Array.isArray(points),
-            len: points?.length,
-            idx
-        });
-
-        return {
-            heading: 0,
-            segShortM: 0,
-            segLongM: 0
-        };
-    }
-
-    const i0 = Math.max(0, Math.min(idx, points.length - 2));
-
-    // short lookahead (local / maneuver)
-    const iShort = Math.min(points.length - 1, i0 + Math.max(1, shortLook));
-    let segShortM = 0;
-    for (let i = i0; i < iShort; i++) {
-        segShortM += haversineM(points[i], points[i + 1]);
-    }
-
-    // long lookahead (global / context)
-    const iLong = Math.min(points.length - 1, i0 + Math.max(1, longLook));
-    let segLongM = 0;
-    for (let i = i0; i < iLong; i++) {
-        segLongM += haversineM(points[i], points[i + 1]);
-    }
-
-    // Heading always from immediate direction (stable + responsive)
-    const heading = bearingDeg(points[i0], points[Math.min(i0 + 1, points.length - 1)]);
-
-    return {
-        heading,      // direction of travel
-        segShortM,    // short / local segment length (maneuver)
-        segLongM      // long / global segment length (context)
-    };
-}
-
-
-// Needs: map maxZoom >= 22 (tile layer must support it)
-
-let lastZoomChangeMs = 0;
-
-
-function logZoomMessage(text) {
-    const el = document.getElementById("zoom-msg");
-    if (!el) return;
-
-    el.textContent = text;
-    el.style.opacity = "1";
-
-    // auto-fade
-    setTimeout(() => {
-        el.style.opacity = "0.6";
-    }, 1200);
-}
-
-function updateZoomModeDual(segShortM, segLongM) {
-    const dL = Math.max(50, Math.min(6500, segLongM));
-    const dS = segShortM;
-
-    const ZOOMS = [19, 18, 17, 16];
-
-    // thresholds based on LONG (stable)
-    const ENTER_L = [-Infinity, 856, 1719, 2997];
-    const EXIT_L = [1427, 2866, 4994, Infinity];
-
-    // maneuver override based on SHORT (only zoom IN)
-    const MANEUVER_ENTER = 51;  // if short is very small zoom in one step
-    const MANEUVER_EXIT = 90;  // release override when short is larger again
-
-    const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
-    const COOLDOWN_MS = 1500;
-
-    // base update from LONG with hysteresis
-    if (now - lastZoomChangeMs >= COOLDOWN_MS) {
-        const prev = zoomMode;
-
-        if (dL > EXIT_L[zoomMode] && zoomMode < ZOOMS.length - 1)
-            zoomMode++; // zoom OUT
-        else if (dL < ENTER_L[zoomMode] && zoomMode > 0)
-            zoomMode--; // zoom IN
-
-        if (zoomMode !== prev) {
-            lastZoomChangeMs = now;
-            logZoomMessage(`Zoom ${ZOOMS[prev]} → ${ZOOMS[zoomMode]} | long ${segLongM.toFixed(1)} m`);
-        }
-    }
-
-    // maneuver override: allow only zoom IN (more detailed)
-    // store a separate flag for override
-    if (typeof updateZoomModeDual.maneuver === "undefined") updateZoomModeDual.maneuver = false;
-
-    if (!updateZoomModeDual.maneuver && dS < MANEUVER_ENTER) {
-        updateZoomModeDual.maneuver = true;
-    } else if (updateZoomModeDual.maneuver && dS > MANEUVER_EXIT) {
-        updateZoomModeDual.maneuver = false;
-    }
-
-    let effectiveMode = zoomMode;
-
-    if (updateZoomModeDual.maneuver) {
-        // zoom in by 1 step, but not beyond mode 0
-        effectiveMode = Math.max(0, zoomMode - 1);
-    }
-
-    return ZOOMS[effectiveMode];
-}
-
-
-function zoomFromSegLen(segShortM, segLongM) {
-    return updateZoomModeDual(segShortM, segLongM);
-}
-
-
 // Create-flow state (start/dest picking)
 
 let kind = null;
@@ -410,12 +139,8 @@ let walkerRoutePoints = null;
 let myMatch = null;       // MatchLayers of my match (routes + pickup/dropoff)
 
 
-// Navigation variables
-let followEnabled = false;
-let lastUserInteractionTime = 0;
-let smoothBearing = 0;
-let lastBearingUpdateTime = 0;
-let zoomMode = 2;
+// follows my agent like a navigation app (navigation.js)
+const follower = new MapFollower(map);
 
 
 // Helpers: fetching without cache
@@ -540,10 +265,7 @@ function updateMyPosition(data) {
             myWalkerDIdx = Number.isInteger(s.walker.dIdx) ? s.walker.dIdx : 0;
 
             if (createdKind === "walker") {
-                const {heading, segShortM, segLongM} =
-                    headingAndSegLens(walkerRoutePoints, myWalkerPIdx, 5, 30);
-                const zoom = zoomFromSegLen(segShortM, segLongM);
-                followWithRotation(latlng, heading, zoom, segShortM);
+                follower.update(latlng, walkerRoutePoints, myWalkerPIdx, 5, 30);
             }
 
         }
@@ -558,10 +280,7 @@ function updateMyPosition(data) {
             }
             myDriverIdx = Number.isInteger(s.driver.idx) ? s.driver.idx : 0;
             if (createdKind === "driver") {
-                const {heading, segShortM, segLongM} =
-                    headingAndSegLens(driverRoutePoints, myDriverIdx, 20, 60);
-                const zoom = zoomFromSegLen(segShortM, segLongM);
-                followWithRotation(latlng, heading, zoom, segShortM);
+                follower.update(latlng, driverRoutePoints, myDriverIdx, 20, 60);
             }
         }
 
@@ -720,24 +439,12 @@ btnCreate.onclick = () => {
 };
 
 btnFollow.onclick = () => {
-    followEnabled = true;
-    lastUserInteractionTime = Date.now();
-    zoomOld = null;
-    flying = false;
-    pendingCenter = null;
-    pendingZoom = null;
-    lastZoomChangeMs = 0;
-    zoomMode = 0;
-
+    follower.start();
     showStopButton();
 };
 
 btnStopFollow.onclick = () => {
-    followEnabled = false;
-    flying = false;
-    pendingCenter = null;
-    pendingZoom = null;
-
+    follower.stop();
     showFollowButtons();
 };
 
@@ -771,35 +478,6 @@ map.on("click", (ev) => {
 
     redrawPreview();
 });
-
-
-// dont work since leaflet cannot distinguish programmatic vs user-initiated events
-map.on("dragstart", (e) => {
-    if (!e?.originalEvent) return;       // ignore programmatic
-    followEnabled = false;
-    lastUserInteractionTime = Date.now();
-    console.log("[FOLLOW] OFF by USER drag");
-});
-
-map.on("zoomstart", (e) => {
-    if (!e?.originalEvent) return;       // ignore programmatic
-    followEnabled = false;
-    lastUserInteractionTime = Date.now();
-    console.log("[FOLLOW] OFF by USER zoom");
-});
-
-
-let lastFollowTick = 0;
-
-setInterval(() => {
-    console.log("[WD]", {
-        followEnabled,
-        flying,
-        zoom: map.getZoom(),
-        hasPending: !!pendingCenter || pendingZoom !== null,
-        secondsSinceTick: ((Date.now() - lastFollowTick) / 1000).toFixed(1)
-    });
-}, 2000);
 
 
 //  Init
