@@ -5,7 +5,7 @@ const { makeContext } = require('./fake_leaflet');
 const WEB = process.argv[2] || require('path').join(__dirname, '..', '..', 'web');
 const t = makeContext();
 vm.createContext(t.ctx);
-for (const f of ['geo.js', 'match_layers.js', 'map.js']) {
+for (const f of ['geo.js', 'match_layers.js', 'speed.js', 'map.js']) {
   vm.runInContext(fs.readFileSync(WEB + '/' + f, 'utf8'), t.ctx, { filename: f });
 }
 vm.runInContext('this.__sims = () => sims; this.__focus = k => setFocus(k); this.__get = n => eval(n);', t.ctx);
@@ -60,9 +60,9 @@ assert.strictEqual(t.els['speedBox'].style.display, 'none');
 const speedAt = pos => { t.els['speedRange'].value = String(pos); t.els['speedRange'].onchange(); return t.sent.at(-1).value; };
 assert.ok(Math.abs(speedAt(0) - 0.0025) < 1e-9);
 assert.ok(Math.abs(speedAt(1000) - 2.0) < 1e-9);
-assert.ok(Math.abs(speedAt(Number(t.els['speedRange'].value = String(t.ctx.__get('sliderFromSpeed')(1.0)))) - 1.0) < 0.01, 'default position = 1.0');
+assert.ok(Math.abs(speedAt(Number(t.els['speedRange'].value = String(t.ctx.__get('SpeedScale.toSlider')(1.0)))) - 1.0) < 0.01, 'default position = 1.0');
 assert.ok(speedAt(11) - speedAt(10) < speedAt(991) - speedAt(990), 'small steps at the slow end, big at the fast end');
-assert.ok(speedAt(t.ctx.__get('sliderFromSpeed')(0.05)) - 0.05 < 0.001, 'real time reachable');
+assert.ok(speedAt(t.ctx.__get('SpeedScale.toSlider')(0.05)) - 0.05 < 0.001, 'real time reachable');
 t.els['speedRange'].value = '0'; t.els['speedRange'].oninput();
 assert.strictEqual(t.els['speedVal'].textContent, '0.05x real time');
 t.els['speedRange'].value = '1000'; t.els['speedRange'].oninput();

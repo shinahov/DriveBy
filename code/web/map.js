@@ -192,45 +192,23 @@ document.getElementById("btn-open-create").onclick = () => {
     window.open("/web/create.html", "_blank");
 };
 
-// Simulation speed = simulated seconds per tick. The server ticks every 0.05 s
-// (TICK_SLEEP_S in config.py), so speed 0.05 is real time.
-// The slider is exponential: small steps at the slow end, big steps at the fast end.
-const TICK_S = 0.05;
-const SPEED_MIN = 0.0025;   // 1/20 of real time
-const SPEED_MAX = 2.0;      // 40x real time
-const SLIDER_MAX = 1000;    // slider positions 0..1000
-
-function speedFromSlider(pos) {
-    return SPEED_MIN * Math.pow(SPEED_MAX / SPEED_MIN, pos / SLIDER_MAX);
-}
-
-function sliderFromSpeed(speed) {
-    return Math.round(SLIDER_MAX * Math.log(speed / SPEED_MIN) / Math.log(SPEED_MAX / SPEED_MIN));
-}
-
-// e.g. "0.05x real time", "1x real time", "20x real time"
-function speedLabel(speed) {
-    const factor = speed / TICK_S;
-    const shown = factor < 1 ? factor.toFixed(2) : factor < 10 ? factor.toFixed(1) : Math.round(factor);
-    return shown + "x real time";
-}
-
 const speedRange = document.getElementById("speedRange");
 const speedVal = document.getElementById("speedVal");
 const speedBox = document.getElementById("speedBox");
 
+// slider math lives in speed.js (SpeedScale)
 speedRange.min = 0;
-speedRange.max = SLIDER_MAX;
+speedRange.max = SpeedScale.SLIDER_MAX;
 speedRange.step = 1;
-speedRange.value = sliderFromSpeed(1.0);   // server default (DEFAULT_SPEED in config.py)
-speedVal.textContent = speedLabel(1.0);
+speedRange.value = SpeedScale.toSlider(SpeedScale.DEFAULT);
+speedVal.textContent = SpeedScale.label(SpeedScale.DEFAULT);
 
 document.getElementById("btn-speed").onclick = () => {
     speedBox.style.display = speedBox.style.display === "none" ? "block" : "none";
 };
 
 speedRange.oninput = () => {
-    speedVal.textContent = speedLabel(speedFromSlider(Number(speedRange.value)));
+    speedVal.textContent = SpeedScale.label(SpeedScale.fromSlider(Number(speedRange.value)));
 };
 
 // a click somewhere on the map closes the speed box
@@ -239,6 +217,6 @@ map.on("click", () => {
 });
 
 speedRange.onchange = () => {
-    socket.send({type: "speed", value: speedFromSlider(Number(speedRange.value))});
+    socket.send({type: "speed", value: SpeedScale.fromSlider(Number(speedRange.value))});
     speedBox.style.display = "none";
 };

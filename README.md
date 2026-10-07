@@ -84,6 +84,7 @@ From the `code` folder:
 | `web/navigation.js` | `MapFollower`: follows the agent like a navigation app (rotate, zoom) |
 | `web/match_layers.js` | `MatchLayers`: draws one match (routes, pickup, dropoff) |
 | `web/socket.js` | `LiveSocket`: WebSocket that reconnects by itself |
+| `web/speed.js` | `SpeedScale`: exponential speed slider (position <-> speed, label) |
 | `web/status.js`, `web/geo.js` | shared constants and geometry helpers |
 
 ## What I want to do next
