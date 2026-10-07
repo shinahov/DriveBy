@@ -33,7 +33,10 @@ assert.strictEqual(t.els['btn-create'].disabled, false);
 t.sock.open = false; t.els['btn-create'].onclick();
 assert.match(t.els['msg'].textContent, /Not connected/);
 assert.strictEqual(t.els['btn-create'].disabled, false, 'buttons unlocked again');
+assert.ok(t.ctx.__get('createFlow').previewLine, 'dashed line while planning');
 t.sock.open = true; t.els['btn-create'].onclick();
+assert.strictEqual(t.ctx.__get('createFlow').previewLine, null, 'dashed line gone after create');
+assert.ok(t.ctx.__get('createFlow').startMarker && t.ctx.__get('createFlow').destMarker, 'start and dest stay');
 eq(t.sent[0].payload, { type: 'walker', start: { lat: 51.2, lon: 6.78 }, dest: { lat: 51.21, lon: 6.79 } });
 assert.strictEqual(t.els['btn-create'].disabled, true);
 

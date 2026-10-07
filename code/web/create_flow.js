@@ -106,7 +106,9 @@ class CreateFlow {
         if (!this.onCreate(payload)) {
             this.setMsg("Not connected to the server yet. Try again in a moment.");
             this.unlock();
+            return;
         }
+        this.clearPreview();  // the agent exists now: keep only the START and DEST markers
     }
 
     lock() {
@@ -118,6 +120,7 @@ class CreateFlow {
         this.btn.driver.disabled = false;
         this.btn.confirm.disabled = !(this.step === "pick_start" || this.step === "pick_dest");
         this.btn.create.disabled = (this.step !== "ready");
+        this.redrawPreview();  // e.g. after an error: show the planned line again
     }
 
     // dashed line from START to the (pending) DEST
