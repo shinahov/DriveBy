@@ -125,6 +125,73 @@ class SimulationTests(unittest.TestCase):
         self.assertNotIn("w", self.sim.agent_id_to_request_id.values())
 
 
+class CancelTests(unittest.TestCase):
+    """The user presses the red X: {"type": "cancel", "request_id": ...}"""
+
+    def setUp(self):
+        self._ctx = fake_osrm()
+        self._ctx.__enter__()
+        self.sim = RecordingSimulation()
+
+    def tearDown(self):
+        self._ctx.__exit__(None, None, None)
+
+    def cancel(self, rid):
+        self.sim.app["create_q"].put({"type": "cancel", "request_id": rid})
+        self.sim.step()
+
+    def match_pair(self):
+        self.sim.create("w", WALKER)
+        self.sim.step()
+        self.sim.create("d", DRIVER)
+        self.sim.step()
+        self.assertEqual(len(self.sim.matches_sim_list), 1)
+        return self.sim.matches_sim_list[0]
+
+    def test_cancel_waiting_walker(self):
+        self.sim.create("w", WALKER)
+        self.sim.step()
+        self.cancel("w")
+        self.assertEqual(self.sim.walker_agent_list, [])
+        self.assertEqual(self.sim.status_of("w")[-1], "cancelled")
+        self.assertNotIn("w", self.sim.agent_id_to_request_id.values())
+
+    def test_walker_cancels_match_driver_waits_again(self):
+        ms = self.match_pair()
+        self.cancel("w")
+        self.assertEqual(self.sim.matches_sim_list, [])
+        self.assertEqual(self.sim.status_of("w")[-1], "cancelled")
+        self.assertEqual(self.sim.driver_agent_list, [ms.driver_agent])
+        self.assertEqual(self.sim.status_of("d")[-1], "not_matched")
+
+    def test_driver_cancels_match_walker_waits_again(self):
+        ms = self.match_pair()
+        self.sim.app["speed"] = 5.0
+        for _ in range(3):
+            self.sim.step()
+        walker_pos = ms.get_walker_pos()
+        self.cancel("d")
+        self.assertEqual(self.sim.matches_sim_list, [])
+        self.assertEqual(self.sim.status_of("d")[-1], "cancelled")
+        self.assertEqual(self.sim.status_of("w")[-1], "not_matched")
+        (walker,) = self.sim.walker_agent_list
+        self.assertEqual(walker.agent_id, ms.walker_agent.agent_id)    # same id for his page
+        self.assertEqual(walker.route.start, walker_pos)               # walks on from where he is
+        self.assertEqual(walker.route.dest, ms.walker_agent.route.dest)
+        self.assertEqual(self.sim.driver_agent_list, [])
+
+    def test_cancel_unknown_request_still_answers(self):
+        self.cancel("nobody")
+        self.assertEqual(self.sim.status_of("nobody"), ["cancelled"])
+
+    def test_cancelled_walker_can_be_matched_again(self):
+        self.match_pair()
+        self.cancel("d")
+        self.sim.create("d2", DRIVER)
+        self.sim.step()
+        self.assertEqual(self.sim.status_of("d2"), ["matched"])
+
+
 class LeftoverPositionTests(unittest.TestCase):
     """An agent without a match gets its own position (type "agent_position")."""
 

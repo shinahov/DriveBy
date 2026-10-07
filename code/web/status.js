@@ -7,6 +7,7 @@ const Status = Object.freeze({
     MATCHED: "matched",
     DONE: "done",
     ERROR: "error",
+    CANCELLED: "cancelled",
     UNKNOWN: "unknown",
 });
 

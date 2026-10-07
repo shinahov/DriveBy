@@ -166,6 +166,10 @@ async def ws_agent_handler(request: web.Request) -> web.WebSocketResponse:
                         "type": "status", "status": Status.QUEUED, "request_id": request_id})
                     await broadcast_status(request_id, Status.QUEUED)
                     continue
+                if t == "cancel":
+                    # handled by the simulation thread, like a create request
+                    request.app["create_q"].put({"type": "cancel", "request_id": data.get("request_id")})
+                    continue
                 if t == "subscribe":
                     # e.g. after a reconnect or page reload: send the newest state again
                     req_id = data.get("request_id")

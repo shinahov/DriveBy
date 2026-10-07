@@ -10,7 +10,7 @@ from typing import Any, Dict
 from aiohttp import web
 
 import config
-from agents import handle_req
+from agents import create_walker_agent, handle_req
 from matching import process_new_agent
 from MatchSimulation import Phase
 from payloads import build_routes_payload, build_snapshot_payload
@@ -128,6 +128,62 @@ class Simulation:
                 self.app["last_routes_by_req"][rid] = routes_for_this_match
                 self.publish_to(rid, event)
 
+    # ---- the user cancels his trip
+    def request_id_to_agent_id(self, request_id: str):
+        for agent_id, rid in self.agent_id_to_request_id.items():
+            if rid == request_id:
+                return agent_id
+        return None
+
+    def cancel(self, request_id: str) -> None:
+        """Remove the agent of request_id. If it was matched, the partner waits for a
+        new match: a driver just drives on, a walker walks on from where he is now."""
+        agent_id = self.request_id_to_agent_id(request_id)
+        self.agent_id_to_request_id.pop(agent_id, None)
+
+        for lst in (self.driver_agent_list, self.walker_agent_list):
+            lst[:] = [a for a in lst if a.agent_id != agent_id]
+
+        for sim in [s for s in self.matches_sim_list
+                    if agent_id in (s.walker_agent.agent_id, s.driver_agent.agent_id)]:
+            self.matches_sim_list.remove(sim)
+            if sim.driver_agent.agent_id == agent_id:
+                self.free_walker(sim)
+            else:
+                self.free_driver(sim)
+
+        self.notify_status(request_id, Status.CANCELLED)
+
+    def free_driver(self, sim) -> None:
+        driver = sim.driver_agent
+        rid = self.agent_id_to_request_id.get(driver.agent_id)
+        if driver.done:
+            self.agent_id_to_request_id.pop(driver.agent_id, None)
+            if rid is not None:
+                self.notify_status(rid, Status.DONE, match_id=sim.match_id)
+            return
+        driver.assigned = False
+        self.driver_agent_list.append(driver)
+        if rid is not None:
+            self.notify_status(rid, Status.NOT_MATCHED, agent_id=driver.agent_id)
+
+    def free_walker(self, sim) -> None:
+        old = sim.walker_agent
+        rid = self.agent_id_to_request_id.get(old.agent_id)
+        # new walking route from where the walker is now (same id, so his page keeps working)
+        try:
+            walker = create_walker_agent(sim.get_walker_pos(), old.route.dest, offset=self.t)
+        except Exception as e:  # e.g. OSRM down: the walker is dropped, his page is told
+            traceback.print_exc()
+            self.agent_id_to_request_id.pop(old.agent_id, None)
+            if rid is not None:
+                self.notify_status(rid, Status.ERROR, message=f"Driver cancelled, no new route: {e}")
+            return
+        walker.agent_id = old.agent_id
+        self.walker_agent_list.append(walker)
+        if rid is not None:
+            self.notify_status(rid, Status.NOT_MATCHED, agent_id=walker.agent_id)
+
     # ---- finished matches / agents
     def remove_finished(self) -> bool:
         """Drop finished matches; their driver becomes free again if still driving.
@@ -140,17 +196,7 @@ class Simulation:
             if w_rid is not None:
                 self.notify_status(w_rid, Status.DONE, match_id=sim.match_id)
 
-            driver = sim.driver_agent
-            d_rid = self.agent_id_to_request_id.get(driver.agent_id)
-            if driver.done:
-                self.agent_id_to_request_id.pop(driver.agent_id, None)
-                if d_rid is not None:
-                    self.notify_status(d_rid, Status.DONE, match_id=sim.match_id)
-            else:
-                driver.assigned = False
-                self.driver_agent_list.append(driver)
-                if d_rid is not None:
-                    self.notify_status(d_rid, Status.NOT_MATCHED, agent_id=driver.agent_id)
+            self.free_driver(sim)
 
         for lst in (self.driver_agent_list, self.walker_agent_list):
             for a in [a for a in lst if a.done]:
@@ -166,7 +212,10 @@ class Simulation:
         routes_changed = False
         for req in drain_create_queue(self.app["create_q"]):
             try:
-                self.handle_create_request(req)
+                if req.get("type") == "cancel":
+                    self.cancel(req["request_id"])
+                else:
+                    self.handle_create_request(req)
             except Exception as e:  # e.g. OSRM down, bad coordinates
                 traceback.print_exc()
                 rid = req.get("request_id")

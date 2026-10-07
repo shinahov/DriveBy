@@ -136,6 +136,15 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(msg["data"]["lat"], WALKER["start"]["lat"], places=3)
         await ws.close()
 
+    async def test_cancel(self):
+        ws = await self.client.ws_connect("/ws_agent")
+        await ws.send_json({"type": "create_request", "payload": WALKER})
+        rid = (await wait_for(ws, is_status("queued")))["request_id"]
+        await wait_for(ws, is_status("not_matched", rid))
+        await ws.send_json({"type": "cancel", "request_id": rid})
+        await wait_for(ws, is_status("cancelled", rid))
+        await ws.close()
+
     async def test_unknown_message_type(self):
         ws = await self.client.ws_connect("/ws_agent")
         await ws.send_json({"type": "nonsense"})
