@@ -106,40 +106,6 @@ function fmt(p) {
     return `${p[0].toFixed(6)}, ${p[1].toFixed(6)}`;
 }
 
-function onRouteAvailable(points) {
-    map.fitBounds(points, {padding: [30, 30]});
-}
-
-
-// Haversine distance between two lat/lon points in meters
-function haversineM(a, b) {
-    const R = 6371000;
-    const toRad = x => x * Math.PI / 180;
-    const lat1 = toRad(a[0]), lon1 = toRad(a[1]);
-    const lat2 = toRad(b[0]), lon2 = toRad(b[1]);
-
-    const dLat = lat2 - lat1;
-    const dLon = lon2 - lon1;
-    const s1 = Math.sin(dLat / 2), s2 = Math.sin(dLon / 2);
-    const h = s1 * s1 + Math.cos(lat1) * Math.cos(lat2) * s2 * s2;
-    return 2 * R * Math.asin(Math.sqrt(h));
-}
-
-
-// Bearing between two lat/lon points in degrees
-function bearingDeg(a, b) {
-    const [lat1, lon1] = a.map(x => x * Math.PI / 180);
-    const [lat2, lon2] = b.map(x => x * Math.PI / 180);
-
-    const dLon = lon2 - lon1;
-    const y = Math.sin(dLon) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-    let brng = Math.atan2(y, x) * 180 / Math.PI;   // -180..180
-    brng = (brng + 360) % 360;                     // 0..360
-    return brng;
-}
-
-
 function lerpAngle(a, b, t) {
     let delta = (b - a + 540) % 360 - 180;
     return (a + delta * t + 360) % 360;
@@ -441,13 +407,7 @@ let driverRoutePoints = null;
 let walkerRoutePoints = null;
 
 
-let myRoutePre = null;
-let myRouteRide = null;
-let myRoutePost = null;
-let myWalkToPickup = null;
-let myWalkFromDropoff = null;
-let myPickup = null;
-let myDropoff = null;
+let myMatch = null;       // MatchLayers of my match (routes + pickup/dropoff)
 
 
 // Navigation variables
@@ -544,19 +504,12 @@ function clearMyViewLayers() {
     myWalkerDIdx = null;
     myDriverIdx = null;
 
-    myRoutePre = removeIfExists(myRoutePre);
-    myRouteRide = removeIfExists(myRouteRide);
-    myRoutePost = removeIfExists(myRoutePost);
-
-    myWalkToPickup = removeIfExists(myWalkToPickup);
-    myWalkFromDropoff = removeIfExists(myWalkFromDropoff);
-
-    myPickup = removeIfExists(myPickup);
-    myDropoff = removeIfExists(myDropoff);
+    if (myMatch) myMatch.remove();
+    myMatch = null;
 }
 
 
-async function updateMyPosition(data) {
+function updateMyPosition(data) {
     if (viewMode !== "match" && viewMode !== "agent") return;
 
     if (viewMode === "match") {
@@ -612,6 +565,7 @@ async function updateMyPosition(data) {
             }
         }
 
+        updateMyProgress();
         return;
     }
 
@@ -650,108 +604,34 @@ async function updateMyPosition(data) {
 }
 
 
-// routes are only meaningful once a match exists; unmatched agent has no match route.
-function sliceInclusive(points, a, b) {
-    if (a < 0) a = 0;
-    if (b >= points.length) b = points.length - 1;
-    if (b < a) return [];
-    return points.slice(a, b + 1);
-}
-
-async function updateMyRoutes(data) {
+// the server sends the routes of my match once (and again after a reconnect)
+function updateMyRoutes(data) {
     if (viewMode !== "match") return;
 
-
     const routes = Array.isArray(data.routes) ? data.routes : [];
-    const r = routes.find(x => String(x.match_id) === String(targetMatchId));
-    if (!r) return;
+    const route = routes.find(r => String(r.match_id) === String(targetMatchId));
+    if (!route || !MatchLayers.isValid(route)) return;
 
-    const d = r.driver_route?.geometry_latlon;
-    const w1 = r.walk_to_pickup?.geometry_latlon;
-    const w2 = r.walk_from_dropoff?.geometry_latlon;
-    const pickup = r.points?.pickup;
-    const dropoff = r.points?.dropoff;
-    if (!Array.isArray(d) || !Array.isArray(w1) || !Array.isArray(w2)) return;
-    if (!Array.isArray(pickup) || !Array.isArray(dropoff)) return;
-    driverRoutePoints = d;
-    walkerRoutePoints = w1.concat(w2);
+    const firstTime = !myMatch;
+    if (myMatch) myMatch.remove();
+    myMatch = new MatchLayers(map, route, {pointIcon: pickDropIcon});
+    updateMyProgress();
 
-
-    if (!Array.isArray(d) ||
-        !Array.isArray(w1) ||
-        !Array.isArray(w2) ||
-        !pickup || !dropoff) return;
-
-    const iPick = r.idx?.pickup;
-    const iDrop = r.idx?.dropoff;
-    if (!Number.isInteger(iPick) ||
-        !Number.isInteger(iDrop)) return;
-
-    const a = Math.min(iPick, iDrop);
-    const b = Math.max(iPick, iDrop);
-
-    const dIdx =
-        Number.isInteger(myDriverIdx) ? myDriverIdx : 0; // i dont why ist only works if i do this
-    const walkerpickIdx =
-        Number.isInteger(myWalkerPIdx) ? myWalkerPIdx : 0;
-    const walkerdropIdx =
-        Number.isInteger(myWalkerDIdx) ? myWalkerDIdx : 0;
-
-    const segPre = sliceInclusive(d, dIdx, a);
-    const segRide = sliceInclusive(d, Math.max(dIdx, a), b);
-    const segPost = sliceInclusive(d, Math.max(dIdx, b), d.length - 1);
-    const segWalkToPickup = sliceInclusive(
-        w1, walkerpickIdx, w1.length - 1);
-    const segWalkFromDropoff = sliceInclusive(
-        w2, Math.max(walkerdropIdx, 0), w2.length - 1);
-
-    const all = d.concat(w1, w2);
-
-    // Observe state BEFORE removing (important)
-    const hadRouteBefore = !!myRouteRide;
-
-    // Remove old layers
-    myRoutePre = removeIfExists(myRoutePre);
-    myRouteRide = removeIfExists(myRouteRide);
-    myRoutePost = removeIfExists(myRoutePost);
-    myWalkToPickup = removeIfExists(myWalkToPickup);
-    myWalkFromDropoff = removeIfExists(myWalkFromDropoff);
-    //myPickup = removeIfExists(myPickup);
-    //myDropoff = removeIfExists(myDropoff);
+    driverRoutePoints = myMatch.driver;
+    walkerRoutePoints = myMatch.walkTo.concat(myMatch.walkFrom);
     clearPreview();
 
-    // Draw new layers
-    myRoutePre = L.polyline(segPre, {weight: 5, opacity: 0.8})
-        .addTo(map).bindTooltip("Driver pre");
-    myRouteRide = L.polyline(segRide, {weight: 6, opacity: 0.9, color: "red"})
-        .addTo(map).bindTooltip("Driver ride");
-    myRoutePost = L.polyline(segPost, {weight: 5, opacity: 0.8})
-        .addTo(map).bindTooltip("Driver post");
+    if (firstTime) map.fitBounds(myMatch.allPoints(), {padding: [30, 30]});
+}
 
-    myWalkToPickup = L.polyline(segWalkToPickup,
-        {weight: 4, opacity: 0.85, dashArray: "6", color: "green"})
-        .addTo(map).bindTooltip("Walk to pickup");
-    myWalkFromDropoff = L.polyline(segWalkFromDropoff,
-        {weight: 4, opacity: 0.85, dashArray: "6", color: "green"})
-        .addTo(map).bindTooltip("Walk from dropoff");
-
-    if (!myPickup) {
-        myPickup = L.marker(pickup, {icon: pickDropIcon}).addTo(map).bindTooltip("Pickup");
-    } else {
-        myPickup.setLatLng(pickup);
-    }
-
-    if (!myDropoff) {
-        myDropoff = L.marker(dropoff, {icon: pickDropIcon}).addTo(map).bindTooltip("Dropoff");
-    } else {
-        myDropoff.setLatLng(dropoff);
-    }
-
-
-    // View policy: only when route appears the first time
-    if (!hadRouteBefore && all.length > 0) {
-        onRouteAvailable(all);
-    }
+// hide the parts of my match route that are already done
+function updateMyProgress() {
+    if (!myMatch) return;
+    myMatch.setProgress({
+        driverIdx: myDriverIdx ?? 0,
+        walkToIdx: myWalkerPIdx ?? 0,
+        walkFromIdx: myWalkerDIdx ?? 0,
+    });
 }
 
 
