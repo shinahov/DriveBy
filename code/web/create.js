@@ -29,11 +29,21 @@ const pickDropIcon = icon("pick_drop.png", 24);
 
 // ---------- panel ----------
 const msgEl = document.getElementById("msg");
+const sheet = document.getElementById("sheet");
+const cancelBox = document.getElementById("cancel-box");
+const cancelLabel = document.getElementById("cancel-label");
 const btnFollow = document.getElementById("btn-follow");
 const btnStopFollow = document.getElementById("btn-stop-follow");
 
 function setMsg(text) {
     msgEl.textContent = text;
+}
+
+// while a trip runs only the map, the red X and "Navigate" are shown
+function showTripControls(onTrip) {
+    sheet.hidden = onTrip;
+    cancelBox.hidden = !onTrip;
+    cancelLabel.textContent = "Cancel trip";
 }
 
 function showFollowButtons() {
@@ -112,6 +122,7 @@ function handleStatus(st) {
         myRequestId = st.request_id;
         saveMyAgent();
         if (viewMode === "create") viewMode = "agent";
+        showTripControls(true);
         setMsg(`Queued.\nrequest_id=${st.request_id}`);
         return;
     }
@@ -136,38 +147,27 @@ function handleStatus(st) {
         return;
     }
 
+    if (st.status === Status.SUBSCRIBED) return;
+
     if (st.status === Status.DONE) {
-        leaveMatch();
-        forgetMyAgent();
-        myRequestId = null;
-        viewMode = "create";
-        createFlow.reset();
-        createFlow.unlock();
-        setMsg("Arrived. Trip finished.\nYou can create a new agent.");
+        backToCreate("Arrived. Trip finished.\nYou can create a new agent.");
+        return;
+    }
+
+    if (st.status === Status.CANCELLED) {
+        backToCreate("Trip cancelled.\nYou can create a new agent.");
         return;
     }
 
     if (st.status === Status.UNKNOWN) {
         // the server does not know my agent any more (e.g. it was restarted)
-        leaveMatch();
-        forgetMyAgent();
-        myRequestId = null;
-        viewMode = "create";
-        createFlow.reset();
-        createFlow.unlock();
-        setMsg("Your previous agent is gone (server restarted?).\nCreate a new one.");
+        backToCreate("Your previous agent is gone (server restarted?).\nCreate a new one.");
         return;
     }
 
-    if (st.status === Status.SUBSCRIBED) return;
-
     if (st.status === Status.ERROR) {
-        // the agent could not be created -> let the user try again
-        forgetMyAgent();
-        myRequestId = null;
-        viewMode = "create";
-        createFlow.unlock();
-        setMsg(`Error:\n${st.message}`);
+        // the agent could not be created -> keep the chosen points, let the user try again
+        backToCreate(`Error:\n${st.message}`, {keepPoints: true});
         return;
     }
 
@@ -187,6 +187,18 @@ function clearMyViewLayers() {
     myFrame = null;
     if (myMatch) myMatch.remove();
     myMatch = null;
+}
+
+// the trip is over (or never started): show the create panel again
+function backToCreate(message, {keepPoints = false} = {}) {
+    leaveMatch();
+    forgetMyAgent();
+    myRequestId = null;
+    viewMode = "create";
+    if (!keepPoints) createFlow.reset();
+    createFlow.unlock();
+    showTripControls(false);
+    setMsg(message);
 }
 
 // stop showing / following the match (it is over)
@@ -297,6 +309,14 @@ btnStopFollow.onclick = () => {
     showFollowButtons();
 };
 
+// red X: cancel the trip (the server answers with "cancelled")
+document.getElementById("btn-cancel-trip").onclick = () => {
+    if (!myRequestId) return;
+    if (!socket.send({type: "cancel", request_id: myRequestId})) {
+        cancelLabel.textContent = "Not connected";
+    }
+};
+
 document.getElementById("btn-cancel").onclick = () => {
     window.close();  // closes this tab, the overview stays open
 };
@@ -309,7 +329,9 @@ if (saved && saved.requestId) {
     createdKind = saved.kind;
     viewMode = "agent";
     createFlow.lock();
+    showTripControls(true);
     setMsg("Reconnecting to your agent...");
 } else {
+    showTripControls(false);
     createFlow.showHint();
 }

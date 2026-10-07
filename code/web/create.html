@@ -35,6 +35,10 @@
             -webkit-tap-highlight-color: transparent;
         }
 
+        [hidden] {
+            display: none !important;
+        }
+
         button:disabled {
             opacity: 0.4;
             cursor: default;
@@ -147,11 +151,43 @@
             color: var(--muted);
         }
 
-        /* ---------- navigation ---------- */
+        /* ---------- during a trip: red X (left) ---------- */
+        .cancel-box {
+            position: fixed;
+            left: 16px;
+            bottom: calc(16px + env(safe-area-inset-bottom));
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .cancel-btn {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            border: none;
+            background: #dc2626;
+            color: #fff;
+            font-size: 30px;
+            line-height: 1;
+            box-shadow: var(--shadow);
+        }
+
+        .cancel-box span {
+            font-size: 12px;
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+
+        /* ---------- navigation (right) ---------- */
         .nav-btn {
             position: fixed;
             right: 16px;
-            bottom: 150px;
+            bottom: calc(40px + env(safe-area-inset-bottom));
             z-index: 1000;
             height: 44px;
             padding: 0 16px;
@@ -165,7 +201,7 @@
 
         #zoom-msg {
             position: fixed;
-            bottom: 150px;
+            bottom: 120px;
             left: 50%;
             transform: translateX(-50%);
             background: rgba(17, 24, 39, 0.8);
@@ -205,13 +241,19 @@
 <button id="btn-stop-follow" class="nav-btn" hidden>Stop</button>
 
 <!-- bottom: start / destination / create -->
-<div class="sheet">
+<div id="sheet" class="sheet">
     <div id="msg"></div>
     <div class="actions">
         <button id="btn-confirm" disabled>Confirm</button>
         <button id="btn-create" class="primary" disabled>Create</button>
         <button id="btn-cancel" class="ghost">Close</button>
     </div>
+</div>
+
+<!-- during a trip: cancel -->
+<div id="cancel-box" class="cancel-box" hidden>
+    <button id="btn-cancel-trip" class="cancel-btn" aria-label="Cancel trip">&#x2715;</button>
+    <span id="cancel-label">Cancel trip</span>
 </div>
 
 <div id="zoom-msg"></div>

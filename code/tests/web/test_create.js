@@ -66,7 +66,10 @@ t.els['kind-btn'].onclick(ev);
 assert.strictEqual(t.els['kind-menu'].hidden, true);
 
 // ---- statuses
+assert.strictEqual(t.els['sheet'].hidden, false, 'panel visible while planning');
 s.h.status(st('queued'));
+assert.strictEqual(t.els['sheet'].hidden, true, 'panel hidden once the agent exists');
+assert.strictEqual(t.els['cancel-box'].hidden, false, 'red X shown');
 s.onConnect(); eq(t.sent.at(-1), { type: 'subscribe', request_id: 'R1' });
 s.h.status(st('error', { message: 'boom' })); assert.match(t.els['msg'].textContent, /boom/);
 const nSent = t.sent.length; assert.strictEqual(t.els['kind-btn'].disabled, false, 'type can change again after an error'); t.els['btn-create'].onclick();
@@ -145,6 +148,30 @@ assert.ok(ml.every(l => !t.onMap.has(l)), 'old match removed');
 assert.strictEqual(t.ctx.__get('viewMode'), 'agent');
 console.log('create.js base OK');
 
+// ---- red X cancels the trip
+{
+  const tc = load(); const sc = tc.sock.s;
+  createWalker(tc); tc.els['btn-create'].onclick();
+  sc.h.status(st('queued')); sc.h.status(st('matched', { match_id: 'M1', agent_id: 'W' }));
+  sc.h.routes({ type: 'routes', data: { routes: [route('M1')] } });
+  const layers = tc.ctx.__get('myMatch').all;
+  tc.els['btn-cancel-trip'].onclick();
+  eq(tc.sent.at(-1), { type: 'cancel', request_id: 'R1' });
+  sc.h.status(st('cancelled'));
+  assert.ok(layers.every(l => !tc.onMap.has(l)), 'match removed');
+  assert.strictEqual(tc.els['sheet'].hidden, false, 'panel back');
+  assert.strictEqual(tc.els['cancel-box'].hidden, true, 'red X gone');
+  assert.strictEqual(tc.ctx.__get('viewMode'), 'create');
+  assert.strictEqual(tc.storage['driveby.myAgent'], undefined);
+  assert.match(tc.els['msg'].textContent, /cancelled/);
+  // not connected: label says so, nothing else changes
+  const td2 = load();
+  createWalker(td2); td2.els['btn-create'].onclick(); td2.sock.s.h.status(st('queued'));
+  td2.sock.open = false; td2.els['btn-cancel-trip'].onclick();
+  assert.strictEqual(td2.els['cancel-label'].textContent, 'Not connected');
+  console.log('create.js cancel OK');
+}
+
 // ---- creating a driver uses the picked type
 {
   const td = load(); const e2 = { stopPropagation() {} };
@@ -168,6 +195,7 @@ console.log('create.js base OK');
   assert.strictEqual(t2.ctx.__get('myRequestId'), 'R1');
   assert.strictEqual(t2.ctx.__get('createdKind'), 'walker');
   assert.strictEqual(t2.els['btn-create'].disabled, true, 'create panel locked');
+  assert.strictEqual(t2.els['sheet'].hidden, true, 'reload during a trip: panel stays hidden');
   s2.onConnect(); eq(t2.sent.at(-1), { type: 'subscribe', request_id: 'R1' });
   s2.h.status(st('matched', { match_id: 'M1', agent_id: 'W' }));
   s2.h.routes({ type: 'routes', data: { routes: [route('M1')] } });
