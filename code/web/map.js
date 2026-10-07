@@ -126,16 +126,17 @@ function applyRoutes(data) {
     if (v !== null && v === routesVersion) return;
     if (v !== null) routesVersion = v;
 
-    let allPoints = [];
+    let newPoints = [];   // only zoom to matches we have not seen yet
     for (const route of (Array.isArray(data.routes) ? data.routes : [])) {
         if (!MatchLayers.isValid(route)) continue;
         const s = getSim(route.match_id);
+        const isNew = !s.match;
         if (s.match) s.match.remove();
         s.match = new MatchLayers(map, route, {label: route.match_id.slice(0, 8)});
-        allPoints = allPoints.concat(s.match.allPoints());
+        if (isNew) newPoints = newPoints.concat(s.match.allPoints());
     }
-    if (allPoints.length > 0) {
-        map.fitBounds(allPoints, {padding: [30, 30]});
+    if (newPoints.length > 0) {
+        map.fitBounds(newPoints, {padding: [30, 30]});
     }
 }
 
