@@ -21,96 +21,32 @@ So the driver does not fully replace walking — the goal is to reduce walking t
 ### Simulation overview (multiple agents)
 ![Simulation overview](images/simulation-view.png)
 
-## What’s implemented right now
-- Uses **OSRM** to fetch routes:
-  - driving routes for drivers
-  - walking routes for walkers
-- Routes are stored as **polylines** (lists of `(lat, lon)` points).
-- A matching step that finds:
-  - a **pickup point** on the driver polyline that minimizes the walking distance from walker start
-  - a **dropoff point** later on the driver polyline that minimizes walking distance to the walker destination
-- A “best driver” selection (currently simple) based on travel/walking cost.
-- A basic real-time simulation loop:
-  - agents move along their polylines over time
-  - the backend writes `positions.json` and `routes.json`
-- A lightweight frontend using **Leaflet** to visualize:
-  - driver + walker positions
-  - match routes (drive + walk-to-pickup + walk-from-dropoff)
-  - pickup/dropoff markers
+### Mobile view (create an agent, accept a match)
+![Create an agent](images/mobile-create.png)
+![Match offer](images/mobile-offer.png)
 
-## Tech notes (how it works)
-- Backend is a Python simulation loop:
-  - pulls create requests from a queue (`/create_agent`)
-  - computes routes via OSRM
-  - tries to match against existing drivers/walkers
-  - updates positions each tick (`t += dt`)
-  - writes JSON snapshots for the frontend
-- Frontend polls JSON files (prototype-style):
-  - positions update frequently (e.g. 200ms)
-  - routes update slower (e.g. 400ms)
-- Matching logic is currently “good enough for a prototype”, but not yet designed for high load.
+## What works right now
+- drivers and walkers can be created on the map (start + destination)
+- routes come from a local **OSRM** (one for driving, one for walking)
+- matching finds a pickup and a dropoff point on the driver route and picks the best driver
+- everything runs as a live simulation, the browser gets updates over **WebSockets**
+- overview map for all agents + a mobile page for one user (navigation mode, cancel trip, slide to accept a match)
+- tests for backend and frontend
 
 ## Run it
 1. Start both OSRM servers (Docker Desktop must be running): `code\start_osrm.bat`
-   - driving: `C:\osrm\wup_duess_driving` on port 5000
-   - walking: `C:\osrm\wup_duess_walking` on port 5001
-2. Install Python packages once: `py -m pip install -r code\requirements.txt`
+2. Install the packages once: `py -m pip install -r code\requirements.txt`
 3. Start the server from the `code` folder: `py main.py`
-4. Open http://127.0.0.1:8000 (overview) and click "Add agent".
+4. Open http://127.0.0.1:8000 and click "Add agent"
 
-## Tests
-From the `code` folder:
-- backend: `py -m pytest tests` (uses a fake OSRM, `tests/fake_osrm.py`, so Docker does not need to run)
-- frontend: `node tests/web/test_map.js` and `node tests/web/test_create.js` (fake Leaflet, no browser needed)
-
-## Code structure (`code/`)
-| File | What it does |
-| --- | --- |
-| `main.py` | entry point, starts the web server |
-| `config.py` | ports, OSRM URLs, matching thresholds |
-| `server.py` | aiohttp server: pages, WebSockets `/ws` and `/ws_agent` |
-| `ws_bus.py` | queues that push messages to the browsers |
-| `simulation.py` | simulation loop (own thread): handles new agents, moves everyone, sends updates |
-| `matching.py` | pickup/dropoff search, best driver, creating matches |
-| `agents.py` | creating driver/walker agents from OSRM routes |
-| `osrm_client.py` | HTTP calls to OSRM (+ cache) |
-| `payloads.py` | JSON messages sent to the frontend |
-| `geo.py` | distance and geometry helpers |
-| `RouteBase.py`, `AgentState.py`, `Match.py`, `MatchSimulation.py` | data classes |
-| `status.py` | status values sent to the browser (same as `web/status.js`) |
-| `web/map.html`, `web/map.js` | overview of the whole simulation (admin / debug view) |
-| `web/create.html`, `web/create.js` | page for one user: create an agent, watch it and its match |
-| `web/create_flow.js` | picking walker/driver, start and destination |
-| `web/navigation.js` | `MapFollower`: follows the agent like a navigation app (rotate, zoom) |
-| `web/match_layers.js` | `MatchLayers`: draws one match (routes, pickup, dropoff) |
-| `web/socket.js` | `LiveSocket`: WebSocket that reconnects by itself |
-| `web/speed.js` | `SpeedScale`: exponential speed slider (position <-> speed, label) |
-| `web/status.js`, `web/geo.js` | shared constants and geometry helpers |
+Tests (from `code`): `py -m pytest tests`, `node tests/web/test_map.js`, `node tests/web/test_create.js`
 
 ## What I want to do next
-### 1) Fix UI / simulation bugs first
-Right now the UI can feel a bit clunky and buggy (state switches, leftover → matched transitions, timing issues).  
-Before adding new features, the goal is to make the current flow stable.
+- make "accept match" real (the server waits until both accepted)
+- use the real GPS position from the phone instead of the simulation
+- HTTPS (Cloudflare tunnel) so it can be tested on the phone outside the home WLAN
+- better matching (more exact pickup times, faster, re-match waiting agents)
+- later maybe a real app (Flutter)
 
-### 2) Stable ID flow for real users (multi-tab / multi-user)
-Currently this is still prototype-level. The next step is to make a clean ID/session flow so multiple real users can use it without collisions:
-- each user/session should reliably track their own agent
-- smooth transitions when an unmatched agent becomes matched later
-- later this should map naturally to a DB model (agents, matches, sessions)
-
-### 3) Move from polling to WebSockets (once the UI is stable)
-Polling JSON works for prototyping, but it won’t scale well.
-Once the UI is less buggy, I want to switch to something like:
-- WebSockets (push updates to clients)
-- or Server-Sent Events
-So the frontend gets real-time updates efficiently and reliably.
-
-### 4) Improve the matching algorithm (important for scale)
-The matching logic will become critical when many users are active.  
-Planned improvements:
-- faster candidate search (spatial indexing / bounding boxes / k-nearest)
-- stronger feasibility checks (ETA constraints, pickup timing)
-- fairer multi-user policies (avoid greedy “first come wins”)
-- better objective functions (time saved, detour cost, wait time)
-
-
+## Note
+Right now this project is mostly built together with Claude (maybe Codex later too).
